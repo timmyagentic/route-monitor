@@ -18,20 +18,21 @@ type Event struct {
 	Time                                         int64
 }
 type Row struct {
-	Handled       bool   `json:"handled"`
-	HandledAt     int64  `json:"handledAt"`
-	ErrorRevision int64  `json:"errorRevision"`
-	NewErrors     int64  `json:"newErrors"`
-	Domain        string `json:"domain"`
-	Seen          int64  `json:"seen"`
-	Connections   int    `json:"connections"`
-	Errors        int    `json:"errors"`
-	DirectErrors  int    `json:"directErrors"`
-	Sources       string `json:"sources"`
-	Routes        string `json:"routes"`
-	Rules         string `json:"rules"`
-	Advice        string `json:"advice"`
-	Priority      int    `json:"priority"`
+	Auto          *AutoProbe `json:"auto,omitempty"`
+	Handled       bool       `json:"handled"`
+	HandledAt     int64      `json:"handledAt"`
+	ErrorRevision int64      `json:"errorRevision"`
+	NewErrors     int64      `json:"newErrors"`
+	Domain        string     `json:"domain"`
+	Seen          int64      `json:"seen"`
+	Connections   int        `json:"connections"`
+	Errors        int        `json:"errors"`
+	DirectErrors  int        `json:"directErrors"`
+	Sources       string     `json:"sources"`
+	Routes        string     `json:"routes"`
+	Rules         string     `json:"rules"`
+	Advice        string     `json:"advice"`
+	Priority      int        `json:"priority"`
 }
 type Probe struct {
 	Time   int64  `json:"time"`
@@ -64,6 +65,9 @@ func openStore(path string) (*Store, error) {
    domain TEXT PRIMARY KEY, error_revision INTEGER NOT NULL DEFAULT 0,
    handled_revision INTEGER, handled_at INTEGER NOT NULL DEFAULT 0
  );
+ CREATE TABLE IF NOT EXISTS auto_recent_errors(event_id TEXT PRIMARY KEY, domain TEXT NOT NULL, ts INTEGER NOT NULL, revision INTEGER NOT NULL);
+ CREATE INDEX IF NOT EXISTS auto_recent_domain ON auto_recent_errors(domain,ts);
+ CREATE TABLE IF NOT EXISTS auto_probes(domain TEXT PRIMARY KEY, started INTEGER NOT NULL, finished INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '');
  INSERT OR IGNORE INTO domain_handling(domain,error_revision)
  SELECT domain,COUNT(*) FROM events WHERE kind='error' AND domain<>'' GROUP BY domain;`)
 	if e != nil {
@@ -94,10 +98,16 @@ func (s *Store) put(events []Event) error {
             ON CONFLICT(domain) DO UPDATE SET error_revision=error_revision+1`, v.Domain); e != nil {
 				return e
 			}
+			if _, e = tx.Exec(`INSERT INTO auto_recent_errors SELECT ?,?,?,error_revision FROM domain_handling WHERE domain=?`, v.ID, v.Domain, v.Time, v.Domain); e != nil {
+				return e
+			}
 		}
 	}
 	now := time.Now().Unix()
 	if now-s.lastPrune > 3600 {
+		if _, e = tx.Exec(`DELETE FROM auto_recent_errors WHERE ts<?`, now-600); e != nil {
+			return e
+		}
 		if _, e = tx.Exec(`DELETE FROM events WHERE ts<?`, now-7*86400); e != nil {
 			return e
 		}
@@ -266,6 +276,10 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 		if e != nil {
 			return nil, 0, e
 		}
+		result[i].Auto, e = s.autoProbe(result[i].Domain)
+		if e != nil {
+			return nil, 0, e
+		}
 		result[i].Advice, result[i].Priority = advice(result[i].DirectErrors, ps)
 		if !strings.Contains(","+result[i].Routes+",", ",DIRECT,") {
 			if result[i].Priority >= 2 && len(ps) > 0 {
@@ -339,7 +353,13 @@ func parseLog(data []byte, id string, now int64) (Event, bool) {
 	if e != nil {
 		return Event{}, false
 	}
-	source, _, _ := net.SplitHostPort(m[4])
+	source, port, err := net.SplitHostPort(m[4])
+	// URLTest dials the selected adapter directly, outside tunnel warning logs.
+	// Only tunnel failures with a real source are user errors; never pause collection.
+	ip := net.ParseIP(source)
+	if err != nil || ip == nil || ip.IsUnspecified() || port == "0" || port == "" {
+		return Event{}, false
+	}
 	route := strings.TrimSpace(m[2])
 	if route != "DIRECT" && route != "JP" && route != "HK" {
 		route = "OTHER"

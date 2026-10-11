@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.2.1"
+var version = "0.3.0"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -51,6 +51,8 @@ type App struct {
 	states      map[string]Health
 	lastFrame   map[string]int64
 	unparsed    int
+	lookupIP    func(context.Context, string) ([]net.IPAddr, error)
+	autoWake    chan struct{}
 	probing     bool
 	probeDomain string
 	lastProbe   time.Time
@@ -155,6 +157,7 @@ func (a *App) health(kind string, ok bool, message string) {
 	a.states[kind] = Health{ok, message}
 	a.mu.Unlock()
 	a.publish()
+	a.wakeAuto()
 }
 func (a *App) publish() {
 	a.mu.Lock()
@@ -362,7 +365,7 @@ func (a *App) handler() http.Handler {
 		a.probeDomain = input.Domain
 		a.lastProbe = time.Now()
 		a.mu.Unlock()
-		abort := func() { a.mu.Lock(); a.probing = false; a.probeDomain = ""; a.mu.Unlock(); a.publish() }
+		abort := a.releaseProbe
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		if e := a.safeTarget(ctx, input.Domain); e != nil {
@@ -446,6 +449,11 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 		fail(w, 500, "读取数据库失败")
 		return
 	}
+	auto, e := a.store.autoStatus(time.Now())
+	if e != nil {
+		fail(w, 500, "读取自动复测状态失败")
+		return
+	}
 	a.mu.Lock()
 	states := make(map[string]Health)
 	for k, v := range a.states {
@@ -455,7 +463,7 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 	for k, v := range a.lastFrame {
 		frames[k] = v
 	}
-	result := map[string]any{"version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
+	result := map[string]any{"auto": auto, "version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
 	a.mu.Unlock()
 	reply(w, result)
 }
@@ -513,11 +521,15 @@ func main() {
 	os.Chmod(filepath.Join(*dir, "history.db"), 0600)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	a := &App{store: store, router: router, cfg: cfg, ctx: ctx, states: map[string]Health{}, lastFrame: map[string]int64{}, sessions: map[string]time.Time{}, attempts: map[string][]time.Time{}, subscribers: map[chan struct{}]bool{}}
+	a := &App{store: store, router: router, cfg: cfg, ctx: ctx, states: map[string]Health{}, lastFrame: map[string]int64{}, sessions: map[string]time.Time{}, attempts: map[string][]time.Time{}, subscribers: map[chan struct{}]bool{}, autoWake: make(chan struct{}, 1)}
 	listener, e := net.Listen("tcp", cfg.Listen)
 	if e != nil {
 		log.Fatal("监听端口失败：", e)
 	}
+	if e = store.interruptAuto(time.Now()); e != nil {
+		log.Fatal("自动复测恢复失败")
+	}
+	go a.autoLoop(ctx)
 	go a.collect(ctx, "connections", "/connections?interval=5000")
 	go a.collect(ctx, "logs", "/logs?level=warning")
 	srv := &http.Server{Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}

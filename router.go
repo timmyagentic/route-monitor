@@ -112,16 +112,6 @@ func (a *App) collect(ctx context.Context, kind, path string) {
 				a.health(kind, true, "部分数据无法解析")
 				continue
 			}
-			// Probe activity does not represent a user failure. The API's synthetic requests normally
-			// have no client source; exclude all log events during the bounded explicit probe window.
-			if kind == "logs" {
-				a.mu.Lock()
-				running := a.probing
-				a.mu.Unlock()
-				if running {
-					events = nil
-				}
-			}
 			if len(events) > 0 {
 				if e = a.store.put(events); e != nil {
 					a.health("storage", false, "数据库写入失败")
@@ -133,6 +123,7 @@ func (a *App) collect(ctx context.Context, kind, path string) {
 			a.lastFrame[kind] = now
 			a.mu.Unlock()
 			a.publish()
+			a.wakeAuto()
 		}
 		close(stop)
 		conn.Close()
@@ -140,7 +131,7 @@ func (a *App) collect(ctx context.Context, kind, path string) {
 	}
 }
 func (a *App) safeTarget(ctx context.Context, domain string) error {
-	if domainName(domain) != domain {
+	if domain == "" || domainName(domain) != domain {
 		return errors.New("只支持已观察到的完整域名")
 	}
 	for _, suffix := range []string{".local", ".localhost", ".lan", ".home.arpa", ".internal", ".test", ".invalid", ".onion"} {
@@ -157,25 +148,23 @@ func (a *App) safeTarget(ctx context.Context, domain string) error {
 	}
 	// Check both monitor DNS and the router's real DNS answer. Fake-IP, private and
 	// mixed public/private answers are rejected. Do not use an external DNS service.
-	ips, e := net.DefaultResolver.LookupIPAddr(ctx, domain)
-	if e != nil || len(ips) == 0 {
-		return errors.New("无法确认公开目标地址，暂不探测")
-	}
-	for _, ip := range ips {
-		if !publicIP(ip.IP) {
-			return errors.New("解析含非公网地址，已跳过探测")
-		}
-	}
 	var answer struct {
+		Status int `json:"Status"`
 		Answer []struct {
 			Type int    `json:"type"`
 			Data string `json:"data"`
 		} `json:"Answer"`
 	}
 	// DNS endpoint may be unavailable; fail closed rather than probing an unknown address.
-	_, e = a.router.get(ctx, "/dns/query?name="+url.QueryEscape(domain)+"&type=A", &answer)
+	_, e := a.router.get(ctx, "/dns/query?name="+url.QueryEscape(domain)+"&type=A", &answer)
 	if e != nil {
 		return errors.New("无法检查路由器 DNS 结果，暂不探测")
+	}
+	if answer.Status == 3 {
+		return errNXDOMAIN
+	}
+	if answer.Status != 0 {
+		return errors.New("路由器 DNS 查询失败，已跳过探测")
 	}
 	n := 0
 	for _, rr := range answer.Answer {
@@ -188,6 +177,19 @@ func (a *App) safeTarget(ctx context.Context, domain string) error {
 	}
 	if n == 0 {
 		return errors.New("路由器未返回可验证公网地址")
+	}
+	lookup := a.lookupIP
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupIPAddr
+	}
+	ips, e := lookup(ctx, domain)
+	if e != nil || len(ips) == 0 {
+		return errors.New("无法确认公开目标地址，暂不探测")
+	}
+	for _, ip := range ips {
+		if !publicIP(ip.IP) {
+			return errors.New("解析含非公网地址，已跳过探测")
+		}
 	}
 	return nil
 }
@@ -230,13 +232,13 @@ func (a *App) nodes(ctx context.Context) (map[string]string, error) {
 	}
 	return out, nil
 }
-func (a *App) runProbe(ctx context.Context, domain string, nodes map[string]string) {
-	defer func() { a.mu.Lock(); a.probing = false; a.probeDomain = ""; a.mu.Unlock(); a.publish() }()
+func (a *App) runProbe(ctx context.Context, domain string, nodes map[string]string) error {
+	defer a.releaseProbe()
 	batch := randomID()
 	for round := 0; round < 3; round++ {
 		for _, route := range []string{"DIRECT", "JP", "HK"} {
 			if ctx.Err() != nil {
-				return
+				return ctx.Err()
 			}
 			p := Probe{Time: time.Now().Unix(), Batch: batch, Domain: domain, Route: route, Node: nodes[route], Status: "failed"}
 			var result struct {
@@ -253,9 +255,10 @@ func (a *App) runProbe(ctx context.Context, domain string, nodes map[string]stri
 			}
 			if _, e = a.store.db.Exec(`INSERT INTO probes VALUES(?,?,?,?,?,?,?)`, p.Time, p.Batch, p.Domain, p.Route, p.Node, p.Status, p.Delay); e != nil {
 				a.health("storage", false, "复测记录写入失败")
-				return
+				return errors.New("复测记录写入失败")
 			}
 			a.publish()
 		}
 	}
+	return ctx.Err()
 }
