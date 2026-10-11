@@ -1,0 +1,30 @@
+'use strict';
+const $=id=>document.getElementById(id);
+let state=null,stream=null,selected=null,loading=false,again=false;
+const fmt=t=>new Date(t*1000).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const node=(tag,text,cls)=>{const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e;};
+async function api(path,body){const res=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok){if(res.status===401&&path!='/api/login')showLogin();throw new Error(data.error||'请求失败');}return data;}
+function showLogin(){$('login').hidden=false;$('dashboard').hidden=true;$('logout').hidden=true;if(stream){stream.close();stream=null;}if($('detail').open)$('detail').close();}
+function showDashboard(){$('login').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;if(!stream){stream=new EventSource('/api/events');stream.addEventListener('refresh',refresh);stream.addEventListener('expired',showLogin);stream.onerror=()=>{$('notice').textContent='与监控服务的实时连接中断，正在重连；当前显示可能不是最新数据。';};stream.onopen=()=>{$('notice').textContent='';refresh();};}}
+async function refresh(){if(loading){again=true;return;}loading=true;try{state=await api('/api/state');showDashboard();render();if(selected&&$('detail').open)await loadDetail();}catch(e){$('notice').textContent=e.message;}finally{loading=false;if(again){again=false;refresh();}}}
+function render(){const rows=state.rows||[];$('domains').textContent=rows.length;$('candidates').textContent=rows.filter(r=>r.priority>0).length;$('errors').textContent=rows.reduce((n,r)=>n+r.directErrors,0);$('unknown').textContent=state.unknown;
+ const healthy=state.states.connections?.connected&&state.states.logs?.connected&&state.states.storage?.connected!==false;const age=state.lastFrame.connections?state.now-state.lastFrame.connections:null;
+ $('live').textContent=healthy&&age!==null&&age<30?'●  正在观测':'●  采集连接待检查';$('live').classList.toggle('bad',!healthy||age===null||age>=30);
+ $('healthDetail').textContent='连接快照：'+(state.lastFrame.connections?fmt(state.lastFrame.connections):'尚未收到')+' · 未归类警告 '+state.unparsed+' 条'+Object.entries(state.states).filter(([,v])=>v.message).map(([k,v])=>' · '+k+': '+v.message).join('');
+ $('progress').textContent=state.probing?'正在复测 '+state.probeDomain+'，最多约70秒；未修改你的规则。':'选择域名查看证据，再决定是否复测。';
+ const search=$('search').value.trim().toLowerCase();const visible=rows.filter(r=>(r.domain+' '+r.sources).toLowerCase().includes(search)&&(!$('onlyIssues').checked||r.priority>0)).sort((a,b)=>b.priority-a.priority||b.seen-a.seen);
+ $('rows').replaceChildren();$('empty').hidden=visible.length>0;$('empty').textContent=rows.length?'没有符合筛选条件的域名。':'还没有观察记录。服务连接后，正常使用手机上网即可。这里不会用模拟数据填充。';
+ for(const r of visible){const tr=node('tr','');const domain=node('td','');domain.append(node('div',r.domain,'domain'),node('small',fmt(r.seen)));const route=node('td','');for(const item of r.routes.split(','))route.append(node('span',item,'badge'));route.append(node('small',r.sources||'来源未知'));const count=node('td',r.connections+' 连接 / '+r.errors+' 错误');count.append(node('small',r.directErrors+' 条直连错误'));const advice=node('td',r.advice,r.priority?'issue':'');const action=node('td','');const btn=node('button','查看');btn.setAttribute('aria-label','查看 '+r.domain);btn.onclick=()=>openDetail(r.domain);action.append(btn);tr.append(domain,route,count,advice,action);$('rows').append(tr);}
+}
+async function openDetail(domain){selected=domain;$('detailTitle').textContent=domain;$('probeMessage').textContent='';$('detail').showModal();await loadDetail();}
+async function loadDetail(){const domain=selected;if(!domain)return;try{const d=await api('/api/detail?domain='+encodeURIComponent(domain));if(domain!==selected)return;const row=state.rows.find(r=>r.domain===domain);$('detailAdvice').textContent=(row?.advice||'')+' · 命中规则：'+(row?.rules||'未知');$('probe').disabled=state.probing;$('probe').textContent=state.probing?'正在复测…':'开始三路复测';$('probeResults').replaceChildren();$('errorResults').replaceChildren();
+ if(!d.probes.length)$('probeResults').append(node('p','尚未复测。点击上方按钮执行三路对照。'));
+ for(const p of d.probes){const line=node('div','', 'result');line.append(node('strong',p.route+' · '+p.node+' · '+(p.status==='reachable'?p.delay+' ms（收到响应）':p.status==='failed'?'探测失败':'无法判定')),node('br',''),node('small',fmt(p.time)));$('probeResults').append(line);}
+ if(!d.errors.length)$('errorResults').append(node('p','最近24小时没有捕获到该域名的可归类错误。'));
+ for(const e of d.errors){const line=node('div','', 'result');line.append(node('strong',e.route+' · '+e.error),node('br',''),node('small',fmt(e.time)+' · '+e.source+' · '+e.rule));$('errorResults').append(line);}
+ }catch(e){$('probeMessage').textContent=e.message;}}
+$('loginForm').onsubmit=async e=>{e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;try{await api('/api/login',{password:$('password').value});$('password').value='';$('loginError').textContent='';await refresh();}catch(err){$('loginError').textContent=err.message;}finally{btn.disabled=false;}};
+$('logout').onclick=async()=>{try{await api('/api/logout',{});}finally{showLogin();}};
+$('search').oninput=()=>state&&render();$('onlyIssues').onchange=()=>state&&render();$('closeDetail').onclick=()=>{$('detail').close();selected=null;};$('detail').addEventListener('close',()=>{selected=null;});
+$('probe').onclick=async()=>{$('probe').disabled=true;try{await api('/api/probe',{domain:selected});$('probeMessage').textContent='复测已开始。结果会逐条显示，不会自动修改任何规则。';await refresh();}catch(e){$('probeMessage').textContent=e.message;$('probe').disabled=false;}};
+refresh();
