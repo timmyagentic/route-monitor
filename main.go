@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.1.0"
+var version = "0.2.0"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -290,7 +290,7 @@ func (a *App) handler() http.Handler {
 		http.SetCookie(w, &http.Cookie{Name: "route_session", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		reply(w, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { a.sendState(w) })
+	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { a.sendState(w, r.URL.Query().Get("view")) })
 	mux.HandleFunc("GET /api/detail", func(w http.ResponseWriter, r *http.Request) {
 		domain := r.URL.Query().Get("domain")
 		if domainName(domain) != domain || domain == "" {
@@ -318,6 +318,31 @@ func (a *App) handler() http.Handler {
 			items = append(items, map[string]any{"time": ts, "source": src, "route": route, "rule": rule, "error": err})
 		}
 		reply(w, map[string]any{"probes": ps, "errors": items})
+	})
+	mux.HandleFunc("POST /api/handling", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Domain                string `json:"domain"`
+			Handled               *bool  `json:"handled"`
+			ExpectedErrorRevision *int64 `json:"expectedErrorRevision"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&input) != nil || domainName(input.Domain) != input.Domain || input.Domain == "" || input.Handled == nil || input.ExpectedErrorRevision == nil || *input.ExpectedErrorRevision < 0 {
+			fail(w, 400, "请提供域名、处理状态及当前错误修订号")
+			return
+		}
+		err := a.store.setHandled(input.Domain, *input.ExpectedErrorRevision, *input.Handled)
+		switch {
+		case errors.Is(err, errHandlingConflict):
+			fail(w, 409, err.Error())
+			return
+		case errors.Is(err, errDomainNotObserved):
+			fail(w, 404, err.Error())
+			return
+		case err != nil:
+			fail(w, 500, "保存处理状态失败")
+			return
+		}
+		a.publish()
+		reply(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("POST /api/probe", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
@@ -408,8 +433,15 @@ func (a *App) handler() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 }
-func (a *App) sendState(w http.ResponseWriter) {
-	rows, unknown, e := a.store.summary()
+func (a *App) sendState(w http.ResponseWriter, view string) {
+	if view == "" {
+		view = "active"
+	}
+	if view != "active" && view != "handled" && view != "all" {
+		fail(w, 400, "无效清单视图")
+		return
+	}
+	rows, unknown, e := a.store.summaryFor(view)
 	if e != nil {
 		fail(w, 500, "读取数据库失败")
 		return
@@ -423,7 +455,7 @@ func (a *App) sendState(w http.ResponseWriter) {
 	for k, v := range a.lastFrame {
 		frames[k] = v
 	}
-	result := map[string]any{"version": version, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
+	result := map[string]any{"version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
 	a.mu.Unlock()
 	reply(w, result)
 }

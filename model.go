@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	_ "modernc.org/sqlite"
 	"net"
@@ -17,16 +18,20 @@ type Event struct {
 	Time                                         int64
 }
 type Row struct {
-	Domain       string `json:"domain"`
-	Seen         int64  `json:"seen"`
-	Connections  int    `json:"connections"`
-	Errors       int    `json:"errors"`
-	DirectErrors int    `json:"directErrors"`
-	Sources      string `json:"sources"`
-	Routes       string `json:"routes"`
-	Rules        string `json:"rules"`
-	Advice       string `json:"advice"`
-	Priority     int    `json:"priority"`
+	Handled       bool   `json:"handled"`
+	HandledAt     int64  `json:"handledAt"`
+	ErrorRevision int64  `json:"errorRevision"`
+	NewErrors     int64  `json:"newErrors"`
+	Domain        string `json:"domain"`
+	Seen          int64  `json:"seen"`
+	Connections   int    `json:"connections"`
+	Errors        int    `json:"errors"`
+	DirectErrors  int    `json:"directErrors"`
+	Sources       string `json:"sources"`
+	Routes        string `json:"routes"`
+	Rules         string `json:"rules"`
+	Advice        string `json:"advice"`
+	Priority      int    `json:"priority"`
 }
 type Probe struct {
 	Time   int64  `json:"time"`
@@ -54,7 +59,13 @@ func openStore(path string) (*Store, error) {
  CREATE INDEX IF NOT EXISTS events_time ON events(ts);
  CREATE INDEX IF NOT EXISTS events_domain ON events(domain,ts);
  CREATE TABLE IF NOT EXISTS probes (ts INTEGER, batch TEXT, domain TEXT, route TEXT, node TEXT, status TEXT, delay INTEGER);
- CREATE INDEX IF NOT EXISTS probes_domain ON probes(domain,ts);`)
+ CREATE INDEX IF NOT EXISTS probes_domain ON probes(domain,ts);
+ CREATE TABLE IF NOT EXISTS domain_handling (
+   domain TEXT PRIMARY KEY, error_revision INTEGER NOT NULL DEFAULT 0,
+   handled_revision INTEGER, handled_at INTEGER NOT NULL DEFAULT 0
+ );
+ INSERT OR IGNORE INTO domain_handling(domain,error_revision)
+ SELECT domain,COUNT(*) FROM events WHERE kind='error' AND domain<>'' GROUP BY domain;`)
 	if e != nil {
 		db.Close()
 		return nil, e
@@ -70,8 +81,19 @@ func (s *Store) put(events []Event) error {
 	}
 	defer tx.Rollback()
 	for _, v := range events {
-		if _, e = tx.Exec(`INSERT INTO events VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, v.ID, v.Domain, v.Source, v.Route, v.Rule, v.Kind, v.Error, v.Time); e != nil {
-			return e
+		result, err := tx.Exec(`INSERT INTO events VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, v.ID, v.Domain, v.Source, v.Route, v.Rule, v.Kind, v.Error, v.Time)
+		if err != nil {
+			return err
+		}
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if inserted > 0 && v.Kind == "error" && v.Domain != "" {
+			if _, e = tx.Exec(`INSERT INTO domain_handling(domain,error_revision) VALUES(?,1)
+            ON CONFLICT(domain) DO UPDATE SET error_revision=error_revision+1`, v.Domain); e != nil {
+				return e
+			}
 		}
 	}
 	now := time.Now().Unix()
@@ -164,15 +186,71 @@ func advice(directErrors int, probes []Probe) (string, int) {
 	}
 	return "观察中 · 尚无足够证据建议改规则", 0
 }
-func (s *Store) summary() ([]Row, int, error) {
-	rows, e := s.db.Query(`SELECT domain,MAX(ts),SUM(kind='connection'),SUM(kind='error'),SUM(kind='error' AND route='DIRECT'),GROUP_CONCAT(DISTINCT source),GROUP_CONCAT(DISTINCT route),GROUP_CONCAT(DISTINCT rule) FROM events WHERE ts>? AND domain<>'' GROUP BY domain ORDER BY SUM(kind='error') DESC,MAX(ts) DESC LIMIT 300`, time.Now().Unix()-86400)
+
+var errHandlingConflict = errors.New("该域名已有新错误，请刷新后重新确认处理")
+var errDomainNotObserved = errors.New("最近24小时未观察到该域名")
+
+func (s *Store) setHandled(domain string, expected int64, handled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM events WHERE domain=? AND ts>?)`, domain, time.Now().Unix()-86400).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errDomainNotObserved
+	}
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO domain_handling(domain,error_revision) VALUES(?,0)`, domain); err != nil {
+		return err
+	}
+	var revision int64
+	if err = tx.QueryRow(`SELECT error_revision FROM domain_handling WHERE domain=?`, domain).Scan(&revision); err != nil {
+		return err
+	}
+	if revision != expected {
+		return errHandlingConflict
+	}
+	if handled {
+		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=error_revision,handled_at=? WHERE domain=?`, time.Now().Unix(), domain)
+	} else {
+		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=NULL,handled_at=0 WHERE domain=?`, domain)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) summary() ([]Row, int, error) { return s.summaryFor("active") }
+func (s *Store) summaryFor(view string) ([]Row, int, error) {
+	predicate := "(h.handled_revision IS NULL OR h.handled_revision<>h.error_revision)"
+	switch view {
+	case "active":
+	case "handled":
+		predicate = "h.handled_revision=h.error_revision"
+	case "all":
+		predicate = "1=1"
+	default:
+		return nil, 0, errors.New("无效清单视图")
+	}
+	rows, e := s.db.Query(`SELECT e.domain,MAX(e.ts),SUM(e.kind='connection'),SUM(e.kind='error'),SUM(e.kind='error' AND e.route='DIRECT'),GROUP_CONCAT(DISTINCT e.source),GROUP_CONCAT(DISTINCT e.route),GROUP_CONCAT(DISTINCT e.rule),
+    COALESCE(h.error_revision,0),COALESCE(h.handled_revision=h.error_revision,0),COALESCE(h.handled_at,0),
+    CASE WHEN h.handled_revision IS NOT NULL THEN h.error_revision-h.handled_revision ELSE 0 END
+    FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain
+    WHERE e.ts>? AND e.domain<>'' AND `+predicate+`
+    GROUP BY e.domain ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC LIMIT 300`, time.Now().Unix()-86400)
 	if e != nil {
 		return nil, 0, e
 	}
 	result := []Row{}
 	for rows.Next() {
 		var r Row
-		if e = rows.Scan(&r.Domain, &r.Seen, &r.Connections, &r.Errors, &r.DirectErrors, &r.Sources, &r.Routes, &r.Rules); e != nil {
+		if e = rows.Scan(&r.Domain, &r.Seen, &r.Connections, &r.Errors, &r.DirectErrors, &r.Sources, &r.Routes, &r.Rules, &r.ErrorRevision, &r.Handled, &r.HandledAt, &r.NewErrors); e != nil {
 			rows.Close()
 			return nil, 0, e
 		}

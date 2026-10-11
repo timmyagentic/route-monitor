@@ -63,3 +63,19 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/local.route-monit
 Go 1.26，`go test -race ./...`、`go vet ./...`、`./build.sh`。Web 页面是内嵌的原生 HTML/CSS/JS，无第三方 CDN。
 
 主要依据：Mihomo v1.19.32 的 `hub/route/connections.go`、`hub/route/server.go`、`hub/route/proxies.go`、`adapter/adapter.go` 与 https://wiki.metacubex.one/api/ 。
+
+## 已处理与新错误（0.2.0）
+
+域名行和详情中的“标记已处理”会将其从默认待处理清单隐藏；切换到“已处理”可查看，并可“恢复到清单”。已处理状态保存在本机 SQLite，重启仍保留，不删除原始错误和复测记录。
+
+仅新捕获的实际错误会自动将域名带回待处理，显示新增错误数；新连接、重复采样和手动复测不会重新打开它。同一秒的新错误也会识别。页面展示仍限最近24小时和每个视图最多300个域名，处理状态不随7天事件清理而重置。
+
+Agent 可直接使用现有认证会话：
+
+- `GET /api/state?view=active`（默认）、`view=handled`、`view=all`。每行包含 `handled`、`handledAt`、`errorRevision`、`newErrors`。
+- `POST /api/handling`，JSON：`{"domain":"example.com","handled":true,"expectedErrorRevision":1}`。`handled:false` 撤销处理。错误修订号必须来自最新读取的行；期间若出现新错误，返回409，需重新读取并判断，不能盲目重试。
+- 沿用 `/api/login` 及 HttpOnly 会话，同源校验不变。接口仅更改本工具处理状态，不更改路由器规则、节点、出口或订阅。
+
+SQLite增量增加`domain_handling`，旧错误记录在首次打开时建立修订基线，之后仅对真正插入的新错误递增。并发标记与错误写入串行处理，防止旧页面误吞新错误。回退旧二进制会暂时忽略处理状态，但已有事件仍兼容；再次升级可恢复处理状态。
+
+macOS 升级提示：当前安装包为本地签名。替换二进制后，系统可能重新要求“本地网络”授权；若命令行检查能通过、LaunchAgent 却报告网络不可达，应先检查系统隐私权限。不得通过修改系统权限数据库或关闭安全保护绕过授权；完成授权前保留旧版以继续采集，数据库与配置不需要重置。

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -52,6 +53,14 @@ func (a *App) collect(ctx context.Context, kind, path string) {
 		conn, resp, e := dialer.DialContext(ctx, endpoint, headers)
 		if e != nil {
 			message := "连接失败，正在重试"
+			switch {
+			case errors.Is(e, syscall.EPERM), errors.Is(e, syscall.EACCES):
+				message = "系统拒绝网络访问，正在重试"
+			case errors.Is(e, syscall.ENETUNREACH), errors.Is(e, syscall.EHOSTUNREACH):
+				message = "到路由器的网络不可达，正在重试"
+			case errors.Is(e, syscall.ECONNREFUSED):
+				message = "路由器拒绝连接，正在重试"
+			}
 			if resp != nil {
 				message = fmt.Sprintf("HTTP %d，正在重试", resp.StatusCode)
 			}
