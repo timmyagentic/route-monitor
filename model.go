@@ -18,21 +18,23 @@ type Event struct {
 	Time                                         int64
 }
 type Row struct {
-	Auto          *AutoProbe `json:"auto,omitempty"`
-	Handled       bool       `json:"handled"`
-	HandledAt     int64      `json:"handledAt"`
-	ErrorRevision int64      `json:"errorRevision"`
-	NewErrors     int64      `json:"newErrors"`
-	Domain        string     `json:"domain"`
-	Seen          int64      `json:"seen"`
-	Connections   int        `json:"connections"`
-	Errors        int        `json:"errors"`
-	DirectErrors  int        `json:"directErrors"`
-	Sources       string     `json:"sources"`
-	Routes        string     `json:"routes"`
-	Rules         string     `json:"rules"`
-	Advice        string     `json:"advice"`
-	Priority      int        `json:"priority"`
+	ProxyEvidence  *ProxyEvidence `json:"proxyEvidence,omitempty"`
+	RecommendProxy bool           `json:"recommendProxy"`
+	Auto           *AutoProbe     `json:"auto,omitempty"`
+	Handled        bool           `json:"handled"`
+	HandledAt      int64          `json:"handledAt"`
+	ErrorRevision  int64          `json:"errorRevision"`
+	NewErrors      int64          `json:"newErrors"`
+	Domain         string         `json:"domain"`
+	Seen           int64          `json:"seen"`
+	Connections    int            `json:"connections"`
+	Errors         int            `json:"errors"`
+	DirectErrors   int            `json:"directErrors"`
+	Sources        string         `json:"sources"`
+	Routes         string         `json:"routes"`
+	Rules          string         `json:"rules"`
+	Advice         string         `json:"advice"`
+	Priority       int            `json:"priority"`
 }
 type Probe struct {
 	Time   int64  `json:"time"`
@@ -281,6 +283,18 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 			return nil, 0, e
 		}
 		result[i].Advice, result[i].Priority = advice(result[i].DirectErrors, ps)
+		result[i].ProxyEvidence = proxyEvidence(ps)
+		if result[i].ProxyEvidence != nil {
+			result[i].RecommendProxy = strings.Contains(","+result[i].Routes+",", ",DIRECT,")
+			result[i].Advice = "直连 3/3 次失败；" + strings.Join(result[i].ProxyEvidence.Routes, "、") + " 各 3/3 次可达。仅为 HTTPS HEAD 结果，需验证实际业务。"
+			if result[i].RecommendProxy {
+				result[i].Priority = 3
+			} else {
+				result[i].Advice += " 当前已走代理，无需重复添加代理规则。"
+				result[i].Priority = 1
+			}
+			continue
+		}
 		if !strings.Contains(","+result[i].Routes+",", ",DIRECT,") {
 			if result[i].Priority >= 2 && len(ps) > 0 {
 				result[i].Advice = "当前已走代理；复测差异不意味着还需添加代理规则"

@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.3.0"
+var version = "0.3.1"
 
 type Config struct {
 	Router       string `json:"router"`

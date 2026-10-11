@@ -3,3 +3,5 @@ button{white-space:nowrap}table{min-width:960px}td:nth-child(2){min-width:155px}
 @media(max-width:1100px){table{min-width:0;display:block}thead{display:none}tbody{display:block}tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;padding:20px 24px;border-top:1px solid #e4ebe2}td,td:first-child,td:nth-child(2),td:nth-child(3),td:nth-child(4){display:block;min-width:0;max-width:none;padding:0;border:0}td:first-child{grid-column:1/-1}td:nth-child(2){grid-column:1}td:nth-child(3){grid-column:2;text-align:right}td:nth-child(4){grid-column:1;align-self:end}td:nth-child(5){grid-column:2;align-self:end;justify-self:end}}
 
 .filters select{font:inherit;border:1px solid #d5ddd8;border-radius:8px;padding:10px 12px;background:white;color:inherit}.row-actions{min-width:160px}.row-actions button{margin:3px 5px 3px 0}.badge.handled{background:#e7eeea;color:#50655c}.badge.reopened{background:#fff0d7;color:#885713}
+
+.badge.proxy-mark{background:#fff0d7;color:#85500b;border:1px solid #e6c382;font-size:12px;font-weight:650;padding:4px 9px;margin:0 0 6px;line-height:1.5}
