@@ -23,7 +23,7 @@ func TestHandlingPersistsAndOnlyNewErrorsReopen(t *testing.T) {
 	if err = s.put([]Event{event}); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.setHandled(event.Domain, 1, true); err != nil {
+	if err = s.setHandled(event.Domain, 1, true, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
 	assertCount := func(view string, count int) []Row {
@@ -54,8 +54,9 @@ func TestHandlingPersistsAndOnlyNewErrorsReopen(t *testing.T) {
 	defer s.db.Close()
 	assertCount("active", 0)
 	assertCount("handled", 1)
-	// A distinct error in the same second must reopen it, regardless of timestamps.
+	// A different error type in the same second must reopen it, regardless of timestamps.
 	event.ID = "error-two"
+	event.Error = "连接被拒绝"
 	if err = s.put([]Event{event}); err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +65,10 @@ func TestHandlingPersistsAndOnlyNewErrorsReopen(t *testing.T) {
 		t.Fatal(rows)
 	}
 	assertCount("handled", 0)
-	if err = s.setHandled(event.Domain, 1, true); !errors.Is(err, errHandlingConflict) {
+	if err = s.setHandled(event.Domain, 1, true, "测试处理原因"); !errors.Is(err, errHandlingConflict) {
 		t.Fatalf("stale action swallowed new error: %v", err)
 	}
-	if err = s.setHandled(event.Domain, 2, true); err != nil {
+	if err = s.setHandled(event.Domain, 2, true, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
 	assertCount("active", 0)
@@ -79,7 +80,7 @@ func TestHandlingPersistsAndOnlyNewErrorsReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCount("active", 0)
-	if err = s.setHandled(event.Domain, 2, false); err != nil {
+	if err = s.setHandled(event.Domain, 2, false, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
 	assertCount("active", 1)
@@ -110,7 +111,7 @@ func TestHandlingMigratesExistingErrorsAndFiltersBeforeLimit(t *testing.T) {
 	}
 	defer s.db.Close()
 	for i := 0; i < 301; i++ {
-		if err = s.setHandled(events[i].Domain, 1, true); err != nil {
+		if err = s.setHandled(events[i].Domain, 1, true, "测试处理原因"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -118,7 +119,7 @@ func TestHandlingMigratesExistingErrorsAndFiltersBeforeLimit(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].Domain != "visible.example.com" {
 		t.Fatal(rows, err)
 	}
-	if err = s.setHandled("visible.example.com", 0, true); err != nil {
+	if err = s.setHandled("visible.example.com", 0, true, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
 	rows, _, err = s.summary()
@@ -146,7 +147,7 @@ func TestHandlingHTTPAuthorizationConflictAndUndo(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
-	body := `{"domain":"example.com","handled":true,"expectedErrorRevision":1}`
+	body := `{"domain":"example.com","handled":true,"reason":"测试处理原因","expectedErrorRevision":1}`
 	if w := call("POST", "/api/handling", body, "http://localhost:9780", nil); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
@@ -180,7 +181,7 @@ func TestHandlingHTTPAuthorizationConflictAndUndo(t *testing.T) {
 	if w := call("GET", "/api/state?view=bad", "", "", cookie); w.Code != 400 {
 		t.Fatal(w.Code)
 	}
-	if err := a.store.put([]Event{{ID: "two", Domain: "example.com", Kind: "error", Route: "DIRECT", Time: now}}); err != nil {
+	if err := a.store.put([]Event{{ID: "two", Domain: "example.com", Kind: "error", Error: "连接超时", Route: "DIRECT", Time: now}}); err != nil {
 		t.Fatal(err)
 	}
 	if w := call("POST", "/api/handling", body, "http://localhost:9780", cookie); w.Code != 409 {
@@ -189,7 +190,7 @@ func TestHandlingHTTPAuthorizationConflictAndUndo(t *testing.T) {
 	if len(state("")) != 1 {
 		t.Fatal("new error hidden")
 	}
-	if w := call("POST", "/api/handling", `{"domain":"example.com","handled":true,"expectedErrorRevision":2}`, "http://localhost:9780", cookie); w.Code != 200 {
+	if w := call("POST", "/api/handling", `{"domain":"example.com","handled":true,"reason":"测试处理原因","expectedErrorRevision":2}`, "http://localhost:9780", cookie); w.Code != 200 {
 		t.Fatal(w.Code)
 	}
 	if w := call("POST", "/api/handling", `{"domain":"example.com","handled":false,"expectedErrorRevision":2}`, "http://localhost:9780", cookie); w.Code != 200 {
@@ -198,7 +199,7 @@ func TestHandlingHTTPAuthorizationConflictAndUndo(t *testing.T) {
 	if len(state("")) != 1 {
 		t.Fatal("undo failed")
 	}
-	if w := call("POST", "/api/handling", `{"domain":"missing.example.com","handled":true,"expectedErrorRevision":0}`, "http://localhost:9780", cookie); w.Code != 404 {
+	if w := call("POST", "/api/handling", `{"domain":"missing.example.com","handled":true,"reason":"测试处理原因","expectedErrorRevision":0}`, "http://localhost:9780", cookie); w.Code != 404 {
 		t.Fatal(w.Code)
 	}
 }

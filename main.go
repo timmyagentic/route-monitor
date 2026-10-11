@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.3.1"
+var version = "0.4.0"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -326,14 +326,18 @@ func (a *App) handler() http.Handler {
 		var input struct {
 			Domain                string `json:"domain"`
 			Handled               *bool  `json:"handled"`
+			Reason                string `json:"reason"`
 			ExpectedErrorRevision *int64 `json:"expectedErrorRevision"`
 		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&input) != nil || domainName(input.Domain) != input.Domain || input.Domain == "" || input.Handled == nil || input.ExpectedErrorRevision == nil || *input.ExpectedErrorRevision < 0 {
 			fail(w, 400, "请提供域名、处理状态及当前错误修订号")
 			return
 		}
-		err := a.store.setHandled(input.Domain, *input.ExpectedErrorRevision, *input.Handled)
+		err := a.store.setHandled(input.Domain, *input.ExpectedErrorRevision, *input.Handled, input.Reason)
 		switch {
+		case errors.Is(err, errHandlingReason):
+			fail(w, 400, err.Error())
+			return
 		case errors.Is(err, errHandlingConflict):
 			fail(w, 409, err.Error())
 			return

@@ -97,7 +97,7 @@ func TestProxyMarkSummaryAndHandledState(t *testing.T) {
 			if route == "JP" && !strings.Contains(r.Advice, "无需重复") {
 				t.Fatal(r.Advice)
 			}
-			if e = a.store.setHandled("example.com", 1, true); e != nil {
+			if e = a.store.setHandled("example.com", 1, true, "测试处理原因"); e != nil {
 				t.Fatal(e)
 			}
 			rows, _, e = a.store.summaryFor("handled")

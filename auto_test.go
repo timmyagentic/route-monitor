@@ -55,11 +55,19 @@ func TestAutoThresholdWindowDedupAndHandled(t *testing.T) {
 				claim(t, s, now, "")
 				return
 			case "handled":
-				if e := s.setHandled("example.com", 1, true); e != nil {
+				if e := s.setHandled("example.com", 1, true, "测试处理原因"); e != nil {
 					t.Fatal(e)
 				}
-				putAutoErrors(t, s, "example.com", now.Unix(), 1)
+
+				putAutoErrors(t, s, "example.com", now.Unix(), 2)
 				claim(t, s, now, "")
+				for i := 0; i < 2; i++ {
+					if e := s.put([]Event{{ID: randomID(), Domain: "example.com", Route: "DIRECT", Error: "连接超时", Kind: "error", Time: now.Unix()}}); e != nil {
+						t.Fatal(e)
+					}
+				}
+				claim(t, s, now, "example.com")
+				return
 			}
 			putAutoErrors(t, s, "example.com", now.Unix(), 1)
 			claim(t, s, now, "example.com")
@@ -88,11 +96,11 @@ func TestAutoOnceSurvivesRestartFailureAndHandling(t *testing.T) {
 	if e != nil || p.State != "interrupted" {
 		t.Fatal(p, e)
 	}
-	if e = s.setHandled("example.com", 2, true); e != nil {
+	if e = s.setHandled("example.com", 2, true, "测试处理原因"); e != nil {
 		t.Fatal(e)
 	}
 	putAutoErrors(t, s, "example.com", now.Add(4*time.Minute).Unix(), 2)
-	if e = s.setHandled("example.com", 4, false); e != nil {
+	if e = s.setHandled("example.com", 4, false, "测试处理原因"); e != nil {
 		t.Fatal(e)
 	}
 	claim(t, s, now.Add(4*time.Minute), "")

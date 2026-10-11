@@ -18,6 +18,7 @@ type Event struct {
 	Time                                         int64
 }
 type Row struct {
+	HandledReason  string         `json:"handledReason"`
 	ProxyEvidence  *ProxyEvidence `json:"proxyEvidence,omitempty"`
 	RecommendProxy bool           `json:"recommendProxy"`
 	Auto           *AutoProbe     `json:"auto,omitempty"`
@@ -76,6 +77,10 @@ func openStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
+	if e = migrateHandling(db); e != nil {
+		db.Close()
+		return nil, e
+	}
 	return &Store{db: db}, nil
 }
 func (s *Store) put(events []Event) error {
@@ -100,7 +105,17 @@ func (s *Store) put(events []Event) error {
             ON CONFLICT(domain) DO UPDATE SET error_revision=error_revision+1`, v.Domain); e != nil {
 				return e
 			}
-			if _, e = tx.Exec(`INSERT INTO auto_recent_errors SELECT ?,?,?,error_revision FROM domain_handling WHERE domain=?`, v.ID, v.Domain, v.Time, v.Domain); e != nil {
+
+			var known bool
+			if e = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM handled_errors WHERE domain=? AND route=? AND error=?)`, v.Domain, v.Route, v.Error).Scan(&known); e != nil {
+				return e
+			}
+			if known {
+				// Advance only a still-handled watermark. Never hide a domain reopened by a different error.
+				if _, e = tx.Exec(`UPDATE domain_handling SET handled_revision=error_revision WHERE domain=? AND handled_revision=error_revision-1`, v.Domain); e != nil {
+					return e
+				}
+			} else if _, e = tx.Exec(`INSERT INTO auto_recent_errors SELECT ?,?,?,error_revision FROM domain_handling WHERE domain=?`, v.ID, v.Domain, v.Time, v.Domain); e != nil {
 				return e
 			}
 		}
@@ -202,7 +217,11 @@ func advice(directErrors int, probes []Probe) (string, int) {
 var errHandlingConflict = errors.New("该域名已有新错误，请刷新后重新确认处理")
 var errDomainNotObserved = errors.New("最近24小时未观察到该域名")
 
-func (s *Store) setHandled(domain string, expected int64, handled bool) error {
+func (s *Store) setHandled(domain string, expected int64, handled bool, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if handled && !validHandlingReason(reason) {
+		return errHandlingReason
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
@@ -227,10 +246,17 @@ func (s *Store) setHandled(domain string, expected int64, handled bool) error {
 	if revision != expected {
 		return errHandlingConflict
 	}
+
+	if _, err = tx.Exec(`DELETE FROM handled_errors WHERE domain=?`, domain); err != nil {
+		return err
+	}
 	if handled {
-		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=error_revision,handled_at=? WHERE domain=?`, time.Now().Unix(), domain)
+		if _, err = tx.Exec(`INSERT INTO handled_errors SELECT DISTINCT domain,COALESCE(route,''),COALESCE(error,'') FROM events WHERE domain=? AND kind='error' AND ts>?`, domain, time.Now().Unix()-86400); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=error_revision,handled_at=?,handled_reason=? WHERE domain=?`, time.Now().Unix(), reason, domain)
 	} else {
-		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=NULL,handled_at=0 WHERE domain=?`, domain)
+		_, err = tx.Exec(`UPDATE domain_handling SET handled_revision=NULL,handled_at=0,handled_reason='' WHERE domain=?`, domain)
 	}
 	if err != nil {
 		return err
@@ -252,7 +278,7 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 	}
 	rows, e := s.db.Query(`SELECT e.domain,MAX(e.ts),SUM(e.kind='connection'),SUM(e.kind='error'),SUM(e.kind='error' AND e.route='DIRECT'),GROUP_CONCAT(DISTINCT e.source),GROUP_CONCAT(DISTINCT e.route),GROUP_CONCAT(DISTINCT e.rule),
     COALESCE(h.error_revision,0),COALESCE(h.handled_revision=h.error_revision,0),COALESCE(h.handled_at,0),
-    CASE WHEN h.handled_revision IS NOT NULL THEN h.error_revision-h.handled_revision ELSE 0 END
+    CASE WHEN h.handled_revision IS NOT NULL THEN h.error_revision-h.handled_revision ELSE 0 END,COALESCE(h.handled_reason,'')
     FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain
     WHERE e.ts>? AND e.domain<>'' AND `+predicate+`
     GROUP BY e.domain ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC LIMIT 300`, time.Now().Unix()-86400)
@@ -262,7 +288,7 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 	result := []Row{}
 	for rows.Next() {
 		var r Row
-		if e = rows.Scan(&r.Domain, &r.Seen, &r.Connections, &r.Errors, &r.DirectErrors, &r.Sources, &r.Routes, &r.Rules, &r.ErrorRevision, &r.Handled, &r.HandledAt, &r.NewErrors); e != nil {
+		if e = rows.Scan(&r.Domain, &r.Seen, &r.Connections, &r.Errors, &r.DirectErrors, &r.Sources, &r.Routes, &r.Rules, &r.ErrorRevision, &r.Handled, &r.HandledAt, &r.NewErrors, &r.HandledReason); e != nil {
 			rows.Close()
 			return nil, 0, e
 		}
