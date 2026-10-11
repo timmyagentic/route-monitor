@@ -300,23 +300,28 @@ func domainName(s string) string {
 }
 func errorClass(raw string) string {
 	t := strings.ToLower(raw)
+	// Match diagnostic words, not substrings of hostnames repeated in the cause.
+	words := make(map[string]bool)
+	for _, word := range strings.Fields(t) {
+		words[strings.Trim(word, ":,;()[]")] = true
+	}
 	switch {
-	case strings.Contains(t, "certificate") || strings.Contains(t, "x509"):
+	case words["certificate"] || words["x509"]:
 		return "TLS 证书错误"
-	case strings.Contains(t, "resolve") || strings.Contains(t, "dns") || strings.Contains(t, "no such host"):
+	case words["resolve"] || words["resolving"] || words["lookup"] || words["dns"] || strings.Contains(t, "no such host") || strings.Contains(t, "server misbehaving"):
 		return "DNS 解析错误"
-	case strings.Contains(t, "timeout") || strings.Contains(t, "deadline"):
+	case words["timeout"] || words["deadline"]:
 		return "连接超时"
-	case strings.Contains(t, "refused"):
+	case words["refused"]:
 		return "连接被拒绝"
-	case strings.Contains(t, "reset"):
+	case words["reset"]:
 		return "连接被重置"
 	default:
 		return "连接失败（未分类）"
 	}
 }
 
-var logLine = regexp.MustCompile(`\[(TCP|UDP)\]\s+dial\s+(.+?)\s+\(match\s+(.+?)\)\s+(\S+)\s+-->\s+(\S+)\s+error:`)
+var logLine = regexp.MustCompile(`\[(TCP|UDP)\]\s+dial\s+(.+?)\s+\(match\s+(.+?)\)\s+(\S+)\s+-->\s+(\S+)\s+error:([\s\S]*)$`)
 
 func parseLog(data []byte, id string, now int64) (Event, bool) {
 	var l struct {
@@ -339,7 +344,7 @@ func parseLog(data []byte, id string, now int64) (Event, bool) {
 	if route != "DIRECT" && route != "JP" && route != "HK" {
 		route = "OTHER"
 	}
-	return Event{ID: id, Domain: domainName(host), Source: source, Route: route, Rule: m[3], Kind: "error", Error: errorClass(l.Payload), Time: now}, true
+	return Event{ID: id, Domain: domainName(host), Source: source, Route: route, Rule: m[3], Kind: "error", Error: errorClass(m[6]), Time: now}, true
 }
 func snapshot(data []byte, now int64) ([]Event, error) {
 	var snap struct {
