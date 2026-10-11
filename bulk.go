@@ -48,7 +48,7 @@ func (s *Store) createBulk() (string, error) {
 	if e != nil {
 		return "", e
 	}
-	_, e = tx.Exec(`INSERT INTO bulk_items(job,domain,position,state) SELECT ?,e.domain,ROW_NUMBER() OVER(ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC,e.domain),'pending' FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain WHERE e.ts>? AND e.domain<>'' AND (h.handled_revision IS NULL OR h.handled_revision<>h.error_revision) AND NOT (`+completedProbeSQL+`) GROUP BY e.domain`, id, time.Now().Unix()-86400)
+	_, e = tx.Exec(`INSERT INTO bulk_items(job,domain,position,state) SELECT ?,e.domain,ROW_NUMBER() OVER(ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC,e.domain),'pending' FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain WHERE e.ts>? AND e.domain<>'' AND (h.handled_revision IS NULL OR h.handled_revision<>h.error_revision) AND NOT (`+completedProbeSQL+`) GROUP BY e.domain HAVING SUM(e.kind='error')>0`, id, time.Now().Unix()-86400)
 	if e != nil {
 		return "", e
 	}
@@ -88,7 +88,7 @@ func (a *App) resumeBulk(ctx context.Context) {
 }
 func (a *App) bulkEligible(domain string) (bool, error) {
 	var ok bool
-	e := a.store.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain WHERE e.domain=? AND e.ts>? AND (h.handled_revision IS NULL OR h.handled_revision<>h.error_revision) AND NOT (`+completedProbeSQL+`))`, domain, time.Now().Unix()-86400).Scan(&ok)
+	e := a.store.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain WHERE e.domain=? AND e.ts>? AND e.kind='error' AND (h.handled_revision IS NULL OR h.handled_revision<>h.error_revision) AND NOT (`+completedProbeSQL+`))`, domain, time.Now().Unix()-86400).Scan(&ok)
 	return ok, e
 }
 func (a *App) runBulk(ctx context.Context, id string) {
@@ -123,7 +123,7 @@ func (a *App) runBulk(ctx context.Context, id string) {
 		}
 		if !ok {
 			state = "skipped"
-			reason = "已处理、已有完整复测或已超出24小时观察窗口"
+			reason = "已无最近24小时真实错误、已处理或已有完整复测"
 		} else {
 			if _, e = a.store.db.Exec(`UPDATE bulk_items SET state='running' WHERE job=? AND domain=?`, id, domain); e != nil {
 				a.health("storage", false, "批量状态保存失败")

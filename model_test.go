@@ -30,7 +30,7 @@ func TestSnapshotDedupAndNoLatencyGuess(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	rows, _, e := s.summary()
+	rows, _, e := s.summaryFor("all")
 	if e != nil || len(rows) != 1 || rows[0].Connections != 1 || rows[0].Priority != 0 {
 		t.Fatalf("bad summary: %+v %v", rows, e)
 	}
@@ -211,8 +211,8 @@ func TestAlreadyProxiedDomainDoesNotSuggestAddingProxyRule(t *testing.T) {
 			}
 		}
 	}
-	rows, _, e := a.store.summary()
-	if e != nil || len(rows) != 1 || rows[0].Priority != 1 || !strings.Contains(rows[0].Advice, "当前已走代理") {
+	rows, _, e := a.store.summaryFor("all")
+	if e != nil || len(rows) != 1 || rows[0].Priority != 0 || !strings.Contains(rows[0].Advice, "当前已走代理") {
 		t.Fatal(rows, e)
 	}
 }

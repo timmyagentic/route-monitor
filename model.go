@@ -259,11 +259,14 @@ func (s *Store) setHandled(domain string, expected int64, handled bool, reason s
 func (s *Store) summary() ([]Row, int, error) { return s.summaryFor("active") }
 func (s *Store) summaryFor(view string) ([]Row, int, error) {
 	predicate := "(h.handled_revision IS NULL OR h.handled_revision<>h.error_revision)"
+	having := "SUM(e.kind='error')>0"
 	switch view {
 	case "active":
 	case "handled":
+		having = "1=1"
 		predicate = "h.handled_revision=h.error_revision"
 	case "all":
+		having = "1=1"
 		predicate = "1=1"
 	default:
 		return nil, 0, errors.New("无效清单视图")
@@ -273,7 +276,7 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
     CASE WHEN h.handled_revision IS NOT NULL THEN h.error_revision-h.handled_revision ELSE 0 END,COALESCE(h.handled_reason,'')
     FROM events e LEFT JOIN domain_handling h ON h.domain=e.domain
     WHERE e.ts>? AND e.domain<>'' AND `+predicate+`
-    GROUP BY e.domain ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC LIMIT 300`, time.Now().Unix()-86400)
+    GROUP BY e.domain HAVING `+having+` ORDER BY SUM(e.kind='error') DESC,MAX(e.ts) DESC LIMIT 300`, time.Now().Unix()-86400)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -311,6 +314,9 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 				result[i].Advice += " 当前已走代理，无需重复添加代理规则。"
 				result[i].Priority = 1
 			}
+			if result[i].Errors == 0 {
+				result[i].Priority = 0
+			}
 			continue
 		}
 		if !strings.Contains(","+result[i].Routes+",", ",DIRECT,") {
@@ -321,6 +327,10 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 				result[i].Advice = "代理连接出现错误，建议检查当前节点或站点状态"
 				result[i].Priority = 1
 			}
+		}
+		// Probe differences alone are reference evidence, not a real connection error.
+		if result[i].Errors == 0 {
+			result[i].Priority = 0
 		}
 	}
 	var unknown int

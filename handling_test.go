@@ -83,7 +83,8 @@ func TestHandlingPersistsAndOnlyNewErrorsReopen(t *testing.T) {
 	if err = s.setHandled(event.Domain, 2, false, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
-	assertCount("active", 1)
+	assertCount("active", 0)
+	assertCount("all", 1)
 }
 
 func TestHandlingMigratesExistingErrorsAndFiltersBeforeLimit(t *testing.T) {
@@ -97,7 +98,7 @@ func TestHandlingMigratesExistingErrorsAndFiltersBeforeLimit(t *testing.T) {
 	for i := 0; i < 301; i++ {
 		events = append(events, Event{ID: fmt.Sprint(i), Domain: fmt.Sprintf("d%d.example.com", i), Kind: "error", Route: "DIRECT", Time: now})
 	}
-	events = append(events, Event{ID: "unhandled", Domain: "visible.example.com", Kind: "connection", Route: "DIRECT", Time: now})
+	events = append(events, Event{ID: "unhandled", Domain: "visible.example.com", Kind: "error", Route: "DIRECT", Time: now})
 	if err = s.put(events); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestHandlingMigratesExistingErrorsAndFiltersBeforeLimit(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].Domain != "visible.example.com" {
 		t.Fatal(rows, err)
 	}
-	if err = s.setHandled("visible.example.com", 0, true, "测试处理原因"); err != nil {
+	if err = s.setHandled("visible.example.com", 1, true, "测试处理原因"); err != nil {
 		t.Fatal(err)
 	}
 	rows, _, err = s.summary()
