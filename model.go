@@ -38,13 +38,15 @@ type Row struct {
 	Priority       int            `json:"priority"`
 }
 type Probe struct {
-	Time   int64  `json:"time"`
-	Batch  string `json:"batch"`
-	Domain string `json:"domain"`
-	Route  string `json:"route"`
-	Node   string `json:"node"`
-	Status string `json:"status"`
-	Delay  int    `json:"delay"`
+	Samples    int    `json:"samples"`
+	BatchState string `json:"batchState,omitempty"`
+	Time       int64  `json:"time"`
+	Batch      string `json:"batch"`
+	Domain     string `json:"domain"`
+	Route      string `json:"route"`
+	Node       string `json:"node"`
+	Status     string `json:"status"`
+	Delay      int    `json:"delay"`
 }
 type Store struct {
 	db        *sql.DB
@@ -64,6 +66,7 @@ func openStore(path string) (*Store, error) {
  CREATE INDEX IF NOT EXISTS events_domain ON events(domain,ts);
  CREATE TABLE IF NOT EXISTS probes (ts INTEGER, batch TEXT, domain TEXT, route TEXT, node TEXT, status TEXT, delay INTEGER);
  CREATE INDEX IF NOT EXISTS probes_domain ON probes(domain,ts);
+ CREATE TABLE IF NOT EXISTS probe_batches(batch TEXT PRIMARY KEY,domain TEXT NOT NULL,samples INTEGER NOT NULL,state TEXT NOT NULL,started INTEGER NOT NULL,finished INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS domain_handling (
    domain TEXT PRIMARY KEY, error_revision INTEGER NOT NULL DEFAULT 0,
    handled_revision INTEGER, handled_at INTEGER NOT NULL DEFAULT 0
@@ -81,7 +84,12 @@ func openStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if e = s.initBulk(); e != nil {
+		db.Close()
+		return nil, e
+	}
+	return s, nil
 }
 func (s *Store) put(events []Event) error {
 	s.mu.Lock()
@@ -136,7 +144,7 @@ func (s *Store) put(events []Event) error {
 	return tx.Commit()
 }
 func (s *Store) probes(domain string) ([]Probe, error) {
-	rows, e := s.db.Query(`SELECT ts,batch,domain,route,node,status,delay FROM probes WHERE domain=? AND ts>? ORDER BY ts DESC,rowid DESC LIMIT 90`, domain, time.Now().Unix()-86400)
+	rows, e := s.db.Query(`SELECT p.ts,p.batch,p.domain,p.route,p.node,p.status,p.delay,COALESCE(b.samples,3),COALESCE(b.state,'') FROM probes p LEFT JOIN probe_batches b ON b.batch=p.batch WHERE p.domain=? AND p.ts>? ORDER BY p.ts DESC,p.rowid DESC LIMIT 90`, domain, time.Now().Unix()-86400)
 	if e != nil {
 		return nil, e
 	}
@@ -144,7 +152,7 @@ func (s *Store) probes(domain string) ([]Probe, error) {
 	result := []Probe{}
 	for rows.Next() {
 		var p Probe
-		if e = rows.Scan(&p.Time, &p.Batch, &p.Domain, &p.Route, &p.Node, &p.Status, &p.Delay); e != nil {
+		if e = rows.Scan(&p.Time, &p.Batch, &p.Domain, &p.Route, &p.Node, &p.Status, &p.Delay, &p.Samples, &p.BatchState); e != nil {
 			return nil, e
 		}
 		result = append(result, p)
@@ -152,25 +160,9 @@ func (s *Store) probes(domain string) ([]Probe, error) {
 	return result, rows.Err()
 }
 func advice(directErrors int, probes []Probe) (string, int) {
-	batches := map[string]map[string][]Probe{}
-	// Compare only within a completed batch; never combine results from different nodes/runs.
-	for _, p := range probes {
-		if batches[p.Batch] == nil {
-			batches[p.Batch] = map[string][]Probe{}
-		}
-		batches[p.Batch][p.Route] = append(batches[p.Batch][p.Route], p)
-	}
-	latest := ""
-	var latestTime int64
-	for _, p := range probes {
-		if p.Time > latestTime {
-			latestTime = p.Time
-			latest = p.Batch
-		}
-	}
-	b := batches[latest]
+	b, n, complete, _ := latestProbeBatch(probes)
 	d := b["DIRECT"]
-	if len(d) == 3 {
+	if complete {
 		allFail, allOK := true, true
 		sumD := 0
 		for _, p := range d {
@@ -180,7 +172,7 @@ func advice(directErrors int, probes []Probe) (string, int) {
 		}
 		for _, route := range []string{"JP", "HK"} {
 			ps := b[route]
-			ok := len(ps) == 3
+			ok := len(ps) == n
 			sumP := 0
 			node := ""
 			for _, p := range ps {
@@ -192,9 +184,9 @@ func advice(directErrors int, probes []Probe) (string, int) {
 				node = p.Node
 			}
 			if ok && allFail {
-				return "建议检查代理规则：直连 3 次失败，" + route + " 3 次收到响应（需业务验证）", 3
+				return fmt.Sprintf("建议检查代理规则：直连 %d 次失败，%s %d 次收到响应（需业务验证）", n, route, n), 3
 			}
-			if ok && allOK && sumD > sumP*3 && sumD-sumP > 3000 {
+			if ok && allOK && sumD > sumP*3 && sumD-sumP > n*1000 {
 				return "可考虑代理：直连重复明显更慢，" + route + " 更快（仅 HEAD 探测）", 2
 			}
 		}
@@ -312,7 +304,7 @@ func (s *Store) summaryFor(view string) ([]Row, int, error) {
 		result[i].ProxyEvidence = proxyEvidence(ps)
 		if result[i].ProxyEvidence != nil {
 			result[i].RecommendProxy = strings.Contains(","+result[i].Routes+",", ",DIRECT,")
-			result[i].Advice = "直连 3/3 次失败；" + strings.Join(result[i].ProxyEvidence.Routes, "、") + " 各 3/3 次可达。仅为 HTTPS HEAD 结果，需验证实际业务。"
+			result[i].Advice = fmt.Sprintf("直连 %d/%d 次失败；%s 各 %d/%d 次可达。仅为 HTTPS HEAD 结果，需验证实际业务。", result[i].ProxyEvidence.Samples, result[i].ProxyEvidence.Samples, strings.Join(result[i].ProxyEvidence.Routes, "、"), result[i].ProxyEvidence.Samples, result[i].ProxyEvidence.Samples)
 			if result[i].RecommendProxy {
 				result[i].Priority = 3
 			} else {

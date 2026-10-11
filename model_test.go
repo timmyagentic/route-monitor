@@ -58,7 +58,7 @@ func TestAdviceRequiresCompleteSameBatchEvidence(t *testing.T) {
 	makeP := func(status string) []Probe {
 		p := []Probe{}
 		for i := 0; i < 3; i++ {
-			p = append(p, Probe{Batch: "a", Route: "DIRECT", Status: status, Time: 1}, Probe{Batch: "a", Route: "JP", Node: "jp1", Status: "reachable", Time: 1, Delay: 100})
+			p = append(p, Probe{Batch: "a", Route: "DIRECT", Status: status, Time: 1}, Probe{Batch: "a", Route: "JP", Node: "jp1", Status: "reachable", Time: 1, Delay: 100}, Probe{Batch: "a", Route: "HK", Node: "hk1", Status: "failed", Time: 1})
 		}
 		return p
 	}
@@ -88,7 +88,7 @@ func TestAdviceRequiresCompleteSameBatchEvidence(t *testing.T) {
 	}
 }
 func TestTargetsRejectPrivateAndMalformed(t *testing.T) {
-	for _, ip := range []string{"127.0.0.1", "10.1.2.3", "192.168.1.1", "169.254.169.254", "198.18.0.1", "100.64.0.1", "::1", "fd00::1", "224.0.0.1"} {
+	for _, ip := range []string{"0.0.0.1", "127.0.0.1", "10.1.2.3", "192.168.1.1", "169.254.169.254", "198.18.0.1", "100.64.0.1", "::1", "fd00::1", "224.0.0.1"} {
 		if publicIP(net.ParseIP(ip)) {
 			t.Error(ip)
 		}
@@ -183,7 +183,7 @@ func TestRouterRequestsNeverChangeSelection(t *testing.T) {
 	}
 	a.runProbe(context.Background(), "example.com", nodes)
 	ps, e := a.store.probes("example.com")
-	if e != nil || len(ps) != 9 {
+	if e != nil || len(ps) != 6 {
 		t.Fatal(len(ps), e)
 	}
 	mu.Lock()
@@ -200,9 +200,9 @@ func TestAlreadyProxiedDomainDoesNotSuggestAddingProxyRule(t *testing.T) {
 	now := time.Now().Unix()
 	a.store.put([]Event{{ID: "proxy-conn", Domain: "example.com", Source: "192.168.1.2", Route: "JP", Rule: "DomainSuffix/example.com", Kind: "connection", Time: now}})
 	for i := 0; i < 3; i++ {
-		for _, r := range []string{"DIRECT", "JP"} {
+		for _, r := range []string{"DIRECT", "JP", "HK"} {
 			status := "reachable"
-			if r == "DIRECT" {
+			if r != "JP" {
 				status = "failed"
 			}
 			_, e := a.store.db.Exec(`INSERT INTO probes VALUES(?,?,?,?,?,?,?)`, now, "same", "example.com", r, r, status, 100)
@@ -212,7 +212,7 @@ func TestAlreadyProxiedDomainDoesNotSuggestAddingProxyRule(t *testing.T) {
 		}
 	}
 	rows, _, e := a.store.summary()
-	if e != nil || len(rows) != 1 || rows[0].Priority != 0 || !strings.Contains(rows[0].Advice, "当前已走代理") {
+	if e != nil || len(rows) != 1 || rows[0].Priority != 1 || !strings.Contains(rows[0].Advice, "当前已走代理") {
 		t.Fatal(rows, e)
 	}
 }

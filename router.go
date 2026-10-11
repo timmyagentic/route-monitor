@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -197,7 +198,7 @@ func publicIP(ip net.IP) bool {
 	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 		return false
 	}
-	for _, s := range []string{"100.64.0.0/10", "198.18.0.0/15", "192.0.0.0/24", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32"} {
+	for _, s := range []string{"0.0.0.0/8", "100.64.0.0/10", "198.18.0.0/15", "192.0.0.0/24", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32"} {
 		_, block, _ := net.ParseCIDR(s)
 		if block.Contains(ip) {
 			return false
@@ -232,33 +233,57 @@ func (a *App) nodes(ctx context.Context) (map[string]string, error) {
 	}
 	return out, nil
 }
-func (a *App) runProbe(ctx context.Context, domain string, nodes map[string]string) error {
+func (a *App) runProbe(ctx context.Context, domain string, nodes map[string]string) (err error) {
 	defer a.releaseProbe()
 	batch := randomID()
-	for round := 0; round < 3; round++ {
-		for _, route := range []string{"DIRECT", "JP", "HK"} {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			p := Probe{Time: time.Now().Unix(), Batch: batch, Domain: domain, Route: route, Node: nodes[route], Status: "failed"}
-			var result struct {
-				Delay int `json:"delay"`
-			}
-			// HEAD https://domain/; no cookies, URL paths, credentials or redirect following.
-			path := "/proxies/" + url.PathEscape(p.Node) + "/delay?timeout=" + strconv.Itoa(7000) + "&url=" + url.QueryEscape("https://"+domain+"/")
-			status, e := a.router.get(ctx, path, &result)
-			if e == nil && result.Delay > 0 {
-				p.Status = "reachable"
-				p.Delay = result.Delay
-			} else if status != 503 && status != 504 {
-				p.Status = "unknown"
-			}
-			if _, e = a.store.db.Exec(`INSERT INTO probes VALUES(?,?,?,?,?,?,?)`, p.Time, p.Batch, p.Domain, p.Route, p.Node, p.Status, p.Delay); e != nil {
-				a.health("storage", false, "复测记录写入失败")
-				return errors.New("复测记录写入失败")
-			}
-			a.publish()
-		}
+	if _, err = a.store.db.Exec(`INSERT INTO probe_batches(batch,domain,samples,state,started) VALUES(?,?,?,'running',?)`, batch, domain, probeSamples, time.Now().Unix()); err != nil {
+		return err
 	}
-	return ctx.Err()
+	defer func() {
+		state := "completed"
+		if err != nil {
+			state = "failed"
+		}
+		if ctx.Err() != nil {
+			state = "interrupted"
+		}
+		_, e := a.store.db.Exec(`UPDATE probe_batches SET state=?,finished=? WHERE batch=?`, state, time.Now().Unix(), batch)
+		if err == nil {
+			err = e
+		}
+		a.publish()
+	}()
+	var wg sync.WaitGroup
+	var once sync.Once
+	// One domain at a time. Its three independent routes run concurrently, with two sequential samples each.
+	for _, route := range []string{"DIRECT", "JP", "HK"} {
+		wg.Go(func() {
+			for round := 0; round < probeSamples; round++ {
+				if ctx.Err() != nil {
+					once.Do(func() { err = ctx.Err() })
+					return
+				}
+				p := Probe{Time: time.Now().Unix(), Batch: batch, Domain: domain, Route: route, Node: nodes[route], Status: "failed"}
+				var result struct {
+					Delay int `json:"delay"`
+				}
+				path := "/proxies/" + url.PathEscape(p.Node) + "/delay?timeout=" + strconv.Itoa(7000) + "&url=" + url.QueryEscape("https://"+domain+"/")
+				status, e := a.router.get(ctx, path, &result)
+				if e == nil && result.Delay > 0 {
+					p.Status = "reachable"
+					p.Delay = result.Delay
+				} else if status != 503 && status != 504 {
+					p.Status = "unknown"
+				}
+				if _, e = a.store.db.Exec(`INSERT INTO probes VALUES(?,?,?,?,?,?,?)`, p.Time, p.Batch, p.Domain, p.Route, p.Node, p.Status, p.Delay); e != nil {
+					a.health("storage", false, "复测记录写入失败")
+					once.Do(func() { err = errors.New("复测记录写入失败") })
+					return
+				}
+				a.publish()
+			}
+		})
+	}
+	wg.Wait()
+	return err
 }

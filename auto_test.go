@@ -299,7 +299,7 @@ func TestAutoPreflightAndExecution(t *testing.T) {
 				t.Fatal(e)
 			}
 			want := "completed"
-			count := 9
+			count := 6
 			if mode == "nxdomain" || mode == "private" {
 				want = "skipped"
 				count = 0
@@ -321,7 +321,7 @@ func TestAutoPreflightAndExecution(t *testing.T) {
 				a.runProbe(context.Background(), "example.com", map[string]string{"DIRECT": "DIRECT", "JP": "jp", "HK": "hk"})
 				after, _ := a.store.autoStatus(now)
 				ps, _ := a.store.probes("example.com")
-				if before != after || len(ps) != 18 {
+				if before != after || len(ps) != 12 {
 					t.Fatal(before, after, len(ps))
 				}
 			}

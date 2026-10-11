@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.4.0"
+var version = "0.5.0"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -53,6 +53,7 @@ type App struct {
 	unparsed    int
 	lookupIP    func(context.Context, string) ([]net.IPAddr, error)
 	autoWake    chan struct{}
+	bulkRunning bool
 	probing     bool
 	probeDomain string
 	lastProbe   time.Time
@@ -351,6 +352,27 @@ func (a *App) handler() http.Handler {
 		a.publish()
 		reply(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("POST /api/probe-pending", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		if a.probing || a.bulkRunning {
+			a.mu.Unlock()
+			fail(w, 409, "已有复测进行中")
+			return
+		}
+		a.bulkRunning = true
+		a.mu.Unlock()
+		id, e := a.store.createBulk()
+		if e != nil {
+			a.mu.Lock()
+			a.bulkRunning = false
+			a.mu.Unlock()
+			fail(w, 500, "无法建立批量复测")
+			return
+		}
+		go a.runBulk(a.ctx, id)
+		reply(w, a.store.bulkStatus())
+	})
+	mux.HandleFunc("GET /api/probe-pending", func(w http.ResponseWriter, r *http.Request) { reply(w, a.store.bulkResults()) })
 	mux.HandleFunc("POST /api/probe", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Domain string `json:"domain"`
@@ -360,7 +382,7 @@ func (a *App) handler() http.Handler {
 			return
 		}
 		a.mu.Lock()
-		if a.probing || time.Since(a.lastProbe) < time.Minute {
+		if a.bulkRunning || a.probing || time.Since(a.lastProbe) < time.Minute {
 			a.mu.Unlock()
 			fail(w, 429, "一次只复测一个域名，间隔至少1分钟")
 			return
@@ -458,6 +480,7 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 		fail(w, 500, "读取自动复测状态失败")
 		return
 	}
+	bulk := a.store.bulkStatus()
 	a.mu.Lock()
 	states := make(map[string]Health)
 	for k, v := range a.states {
@@ -467,7 +490,7 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 	for k, v := range a.lastFrame {
 		frames[k] = v
 	}
-	result := map[string]any{"auto": auto, "version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
+	result := map[string]any{"bulk": bulk, "samplesPerRoute": probeSamples, "auto": auto, "version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
 	a.mu.Unlock()
 	reply(w, result)
 }
@@ -530,9 +553,13 @@ func main() {
 	if e != nil {
 		log.Fatal("监听端口失败：", e)
 	}
+	if e = store.recoverBulk(); e != nil {
+		log.Fatal("批量复测初始化失败")
+	}
 	if e = store.interruptAuto(time.Now()); e != nil {
 		log.Fatal("自动复测恢复失败")
 	}
+	a.resumeBulk(ctx)
 	go a.autoLoop(ctx)
 	go a.collect(ctx, "connections", "/connections?interval=5000")
 	go a.collect(ctx, "logs", "/logs?level=warning")

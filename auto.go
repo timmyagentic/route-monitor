@@ -125,7 +125,7 @@ func (a *App) releaseProbe() {
 func (a *App) reserveAuto(now time.Time) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.probing || now.Sub(a.lastProbe) < time.Minute || !a.states["connections"].Connected || !a.states["logs"].Connected || !a.states["storage"].Connected || now.Unix()-a.lastFrame["connections"] > 15 {
+	if a.bulkRunning || a.probing || now.Sub(a.lastProbe) < time.Minute || !a.states["connections"].Connected || !a.states["logs"].Connected || !a.states["storage"].Connected || now.Unix()-a.lastFrame["connections"] > 15 {
 		return false
 	}
 	a.probing = true
