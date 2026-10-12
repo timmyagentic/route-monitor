@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.5.2"
+var version = "0.5.3"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -43,6 +43,7 @@ type Health struct {
 	Message   string `json:"message"`
 }
 type App struct {
+	lastProbe   time.Time
 	store       *Store
 	router      *Router
 	cfg         Config
@@ -56,7 +57,6 @@ type App struct {
 	bulkRunning bool
 	probing     bool
 	probeDomain string
-	lastProbe   time.Time
 	sessions    map[string]time.Time
 	attempts    map[string][]time.Time
 	subscribers map[chan struct{}]bool
@@ -387,9 +387,9 @@ func (a *App) handler() http.Handler {
 			return
 		}
 		a.mu.Lock()
-		if a.bulkRunning || a.probing || time.Since(a.lastProbe) < time.Minute {
+		if a.bulkRunning || a.probing {
 			a.mu.Unlock()
-			fail(w, 429, "一次只复测一个域名，间隔至少1分钟")
+			fail(w, 429, "已有复测进行中，请等待完成")
 			return
 		}
 		a.probing = true
