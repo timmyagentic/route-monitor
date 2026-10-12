@@ -29,7 +29,7 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.5.1"
+var version = "0.5.2"
 
 type Config struct {
 	Router       string `json:"router"`
@@ -155,8 +155,12 @@ func setup(path string) error {
 }
 func (a *App) health(kind string, ok bool, message string) {
 	a.mu.Lock()
+	previous, exists := a.states[kind]
 	a.states[kind] = Health{ok, message}
 	a.mu.Unlock()
+	if !exists || previous != (Health{ok, message}) {
+		log.Printf("health %s connected=%t %s", kind, ok, message)
+	}
 	a.publish()
 	a.wakeAuto()
 }
@@ -219,6 +223,7 @@ func fail(w http.ResponseWriter, status int, message string) {
 }
 func (a *App) handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", a.serviceHealth)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/app.js" && r.URL.Path != "/style.css" {
 			http.NotFound(w, r)
@@ -503,7 +508,17 @@ func main() {
 	doSetup := flag.Bool("setup", false, "交互配置")
 	check := flag.Bool("check", false, "验证路由器连接")
 	agent := flag.Bool("install-agent", false, "生成登录启动项")
+	service := flag.Bool("service", false, "后台运行并记录有限的生命周期日志")
 	flag.Parse()
+	if *service {
+		writer, err := openServiceLog(*dir)
+		if err != nil {
+			log.Fatal("无法打开后台运行日志")
+		}
+		defer writer.Close()
+		log.SetOutput(writer)
+		log.Printf("service starting version=%s pid=%d ppid=%d", version, os.Getpid(), os.Getppid())
+	}
 	path := filepath.Join(*dir, "config.json")
 	if *agent {
 		if e = installAgent(*dir); e != nil {
@@ -559,6 +574,7 @@ func main() {
 	if e = store.interruptAuto(time.Now()); e != nil {
 		log.Fatal("自动复测恢复失败")
 	}
+	a.health("storage", true, "")
 	a.resumeBulk(ctx)
 	go a.autoLoop(ctx)
 	go a.collect(ctx, "connections", "/connections?interval=5000")
@@ -566,6 +582,7 @@ func main() {
 	srv := &http.Server{Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		<-ctx.Done()
+		log.Print("service shutdown requested")
 		shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)
 		defer done()
 		srv.Shutdown(shutdown)
@@ -575,4 +592,5 @@ func main() {
 	if e = srv.Serve(listener); e != nil && !errors.Is(e, http.ErrServerClosed) {
 		log.Fatal(e)
 	}
+	log.Print("service stopped")
 }

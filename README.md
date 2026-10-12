@@ -9,7 +9,7 @@
 3. 浏览器会打开 `http://localhost:9780/`。用刚设置的页面密码登录。
 4. 在其他设备使用 Mac mini 的局域网地址访问，例如 `http://192.168.31.81:9780/`。
 
-安装包含 Apple Silicon 与 Intel 通用可执行文件，不需要 Python、Node、Go 或 SSH。配置和密钥在目标 Mac 上输入；包内不含任何人的配置、浏览记录或凭据。二进制是本地开发签名，未经 Apple 公证；若 macOS 要求确认开发者，需用户在系统界面处理，不应关闭 Gatekeeper。首次局域网访问若受系统防火墙阻止，需允许该程序的本地连接。
+安装包含 Apple Silicon 与 Intel 通用应用，不需要 Python、Node、Go 或 SSH。配置和密钥在目标 Mac 上输入；包内不含任何人的配置、浏览记录或凭据。应用使用 Apple 开发者证书签名，安装包未经 Apple 公证；若 macOS 要求确认开发者，需用户在系统界面处理，不应关闭 Gatekeeper。首次局域网访问若受系统防火墙阻止，需允许该程序的本地连接。
 
 安装为当前用户 LaunchAgent：登录 Mac 后启动，退出登录后停止；休眠期间无法采集。不自动改变 Mac 的休眠设置。程序不应暴露公网，也不配置端口映射。
 
@@ -41,7 +41,11 @@
 ## 本地文件与停止
 
 数据：`~/Library/Application Support/RouteMonitor/`，目录权限 0700，配置 0600。
+应用：`~/Applications/Route Monitor.app`，固定标识 `local.route-monitor`。启动项通过 `AssociatedBundleIdentifiers` 关联本地网络授权；系统询问时允许 Route Monitor。终端检查通过不等于后台权限通过。
 启动项：`~/Library/LaunchAgents/local.route-monitor.plist`。
+运行日志：数据目录内 `logs/service.log`，每份约 1 MiB，保留一份轮转文件，权限 0600。只记录启动、退出及脱敏的健康变化，不保存密钥、Cookie、请求正文或原始流量日志。
+安装程序等待后台连接、错误订阅和存储均健康后才报告完成。关闭安装终端或聊天不会停止服务；意外退出由 launchd 自动拉起。退出 macOS 登录或机器睡眠仍会暂停，重新登录后自动启动。
+本机 `http://127.0.0.1:9780/healthz` 健康时返回 HTTP 200；连接断开、初始化未完成或快照超过 30 秒返回 503。仅接受回环地址请求，不返回配置或历史。
 页面密码通过 PBKDF2-SHA256（200000 次迭代、独立盐）保存；页面只在通过密码登录后提供记录。不向浏览器提供路由器密钥。局域网 HTTP 不提供传输加密，适用于可信家庭网络。
 
 停止并取消本次运行：
@@ -60,7 +64,7 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/local.route-monit
 
 ## 开发与验收
 
-Go 1.26，`go test -race ./...`、`go vet ./...`、`./build.sh`。Web 页面是内嵌的原生 HTML/CSS/JS，无第三方 CDN。
+Go 1.26，`go test -race ./...`、`go vet ./...`、`CODESIGN_IDENTITY=本机Apple签名身份 ./build.sh`。构建不再默认为临时签名。安装器可设置 `ROUTE_MONITOR_NONINTERACTIVE=1` 跳过打开浏览器和回车等待，仍验证真实后台健康。Web 页面是内嵌的原生 HTML/CSS/JS，无第三方 CDN。
 
 主要依据：Mihomo v1.19.32 的 `hub/route/connections.go`、`hub/route/server.go`、`hub/route/proxies.go`、`adapter/adapter.go` 与 https://wiki.metacubex.one/api/ 。
 
@@ -78,7 +82,7 @@ Agent 可直接使用现有认证会话：
 
 SQLite增量增加`domain_handling`，旧错误记录在首次打开时建立修订基线，之后仅对真正插入的新错误递增。并发标记与错误写入串行处理，防止旧页面误吞新错误。回退旧二进制会暂时忽略处理状态，但已有事件仍兼容；再次升级可恢复处理状态。
 
-macOS 升级提示：当前安装包为本地签名。替换二进制后，系统可能重新要求“本地网络”授权；若命令行检查能通过、LaunchAgent 却报告网络不可达，应先检查系统隐私权限。不得通过修改系统权限数据库或关闭安全保护绕过授权；完成授权前保留旧版以继续采集，数据库与配置不需要重置。
+macOS 升级提示：0.5.2 起使用固定应用标识与 Apple 开发者签名。从旧版本迁移时可能需要重新允许 Route Monitor 的本地网络权限；后台若报告网络不可达，应检查该应用的系统隐私权限。不得修改系统权限数据库或关闭安全保护。配置和历史无需重置；旧应用升级时保存在数据目录内 `app-backup.*`，不再以临时前台服务代替后台安装验收。
 
 ### 错误分类修正（0.2.1）
 
