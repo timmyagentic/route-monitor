@@ -16,7 +16,7 @@ Tests and CI must not access the installed application's data, signing keychain,
 
 ## Pull requests and merge
 
-Use concise imperative commit subjects. Push the branch and open a ready PR; use Draft only when requested or concretely blocked. Write the PR description in Chinese with the problem, resulting behavior, verification and relevant limitations. Every PR updates both `CHANGELOG.md` and `CHANGELOG.zh-Hans.md` under Unreleased. Do not manufacture product changes just to bump a version.
+Use concise imperative commit subjects. Push the branch and open a ready PR; use Draft only when requested or concretely blocked. Write the PR description in Chinese with the problem, resulting behavior, verification and relevant limitations. Every PR updates both `CHANGELOG.md` and `CHANGELOG.zh-Hans.md` under Unreleased; release preparation moves those entries into the numbered release. Do not manufacture product changes just to bump a version.
 
 `main` requires a PR, successful current-head `Go and static checks` and `macOS build and tests`, an up-to-date branch, and resolved review conversations. No actor may bypass the rules, force-push, or delete main. Squash is the supported merge method. Zero mandatory approvals follows QuotaMonitor's single-maintainer setup; this is not permission to ignore a substantive review finding.
 

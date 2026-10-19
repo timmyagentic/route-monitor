@@ -107,7 +107,7 @@ func (c *cloudRules) call(ctx context.Context, action string, body, out any) err
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 RouteMonitor/0.6")
+	req.Header.Set("User-Agent", "Mozilla/5.0 RouteMonitor/"+version)
 	r, e := c.client.Do(req)
 	if e != nil {
 		return correctionError{"cloud_unavailable"}

@@ -21,13 +21,13 @@ class GovernanceTests(unittest.TestCase):
     def test_release_rejects_drift_and_missing_translation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            (root / 'main.go').write_text('var version = "0.6.0"\n')
-            (root / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '0.6.0', 'CFBundleShortVersionString': '0.6.0'}))
+            (root / 'main.go').write_text('var version = "0.1.0"\n')
+            (root / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '0.1.0', 'CFBundleShortVersionString': '0.1.0'}))
             for name in ['CHANGELOG.md', 'CHANGELOG.zh-Hans.md']:
-                (root / name).write_text('## [Unreleased]\n\n- Change\n\n## [0.6.0] - 2026-10-19\n\n- Release\n')
+                (root / name).write_text('## [Unreleased]\n\n- Change\n\n## [0.1.0] - 2026-10-19\n\n- Release\n')
             self.assertEqual(release.validate(root, {'CHANGELOG.md', 'CHANGELOG.zh-Hans.md'}), [])
             self.assertIn('PR must update CHANGELOG.zh-Hans.md', release.validate(root, {'CHANGELOG.md'}))
-            (root / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '0.5.0', 'CFBundleShortVersionString': '0.6.0'}))
+            (root / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '0.0.9', 'CFBundleShortVersionString': '0.1.0'}))
             self.assertIn('CFBundleVersion does not match main.go', release.validate(root))
 
     def test_merge_gate_rejects_stale_skipped_and_unresolved_states(self):
