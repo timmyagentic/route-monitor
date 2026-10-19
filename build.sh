@@ -14,6 +14,10 @@ VERSION="$(sed -n 's/^var version = "\(.*\)"$/\1/p' main.go)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP"
 codesign --verify --strict "$APP"
+mkdir -p build/RouteMonitor/router
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/RouteMonitor/router/route-bridge-linux-arm64 ./cmd/route-bridge
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/RouteMonitor/router/route-bridge-linux-amd64 ./cmd/route-bridge
+(cd build/RouteMonitor/router && shasum -a 256 route-bridge-linux-*) > build/RouteMonitor/router/SHA256SUMS
 cp install.command 'build/RouteMonitor/安装.command'
 cp README.md 'build/RouteMonitor/使用说明.md'
 {

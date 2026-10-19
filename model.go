@@ -8,6 +8,7 @@ import (
 	_ "modernc.org/sqlite"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,10 @@ import (
 type Event struct {
 	ID, Domain, Source, Route, Rule, Kind, Error string
 	Time                                         int64
+	Network, Node                                string
+	Port                                         int
+	Download                                     int64
+	StartedAt                                    int64
 }
 type Row struct {
 	HandledReason  string         `json:"handledReason"`
@@ -85,6 +90,10 @@ func openStore(path string) (*Store, error) {
 		return nil, e
 	}
 	s := &Store{db: db}
+	if e = s.initCorrection(); e != nil {
+		db.Close()
+		return nil, e
+	}
 	if e = s.initBulk(); e != nil {
 		db.Close()
 		return nil, e
@@ -107,6 +116,12 @@ func (s *Store) put(events []Event) error {
 		inserted, err := result.RowsAffected()
 		if err != nil {
 			return err
+		}
+		if v.Network != "" && v.Port > 0 {
+			if _, e = tx.Exec(`INSERT INTO event_transport(id,network,port,node,download,seen,started) VALUES(?,?,?,?,?,?,?)
+ ON CONFLICT(id) DO UPDATE SET download=MAX(download,excluded.download),seen=MAX(seen,excluded.seen)`, v.ID, v.Network, v.Port, v.Node, v.Download, v.Time, v.StartedAt); e != nil {
+				return e
+			}
 		}
 		if inserted > 0 && v.Kind == "error" && v.Domain != "" {
 			if _, e = tx.Exec(`INSERT INTO domain_handling(domain,error_revision) VALUES(?,1)
@@ -137,6 +152,9 @@ func (s *Store) put(events []Event) error {
 			return e
 		}
 		if _, e = tx.Exec(`DELETE FROM probes WHERE ts<?`, now-7*86400); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM event_transport WHERE id NOT IN (SELECT id FROM events)`); e != nil {
 			return e
 		}
 		s.lastPrune = now
@@ -391,7 +409,7 @@ func parseLog(data []byte, id string, now int64) (Event, bool) {
 	if m == nil {
 		return Event{}, false
 	}
-	host, _, e := net.SplitHostPort(m[5])
+	host, targetPort, e := net.SplitHostPort(m[5])
 	if e != nil {
 		return Event{}, false
 	}
@@ -406,20 +424,25 @@ func parseLog(data []byte, id string, now int64) (Event, bool) {
 	if route != "DIRECT" && route != "JP" && route != "HK" {
 		route = "OTHER"
 	}
-	return Event{ID: id, Domain: domainName(host), Source: source, Route: route, Rule: m[3], Kind: "error", Error: errorClass(m[6]), Time: now}, true
+	destinationPort, _ := strconv.Atoi(targetPort)
+	return Event{ID: id, Domain: domainName(host), Source: source, Route: route, Rule: m[3], Kind: "error", Error: errorClass(m[6]), Time: now, Network: strings.ToLower(m[1]), Port: destinationPort}, true
 }
 func snapshot(data []byte, now int64) ([]Event, error) {
 	var snap struct {
 		Connections []struct {
 			ID       string `json:"id"`
 			Metadata struct {
-				Host      string `json:"host"`
-				SourceIP  string `json:"sourceIP"`
-				SniffHost string `json:"sniffHost"`
+				Host            string `json:"host"`
+				SourceIP        string `json:"sourceIP"`
+				SniffHost       string `json:"sniffHost"`
+				Network         string `json:"network"`
+				DestinationPort string `json:"destinationPort"`
 			} `json:"metadata"`
-			Chains      []string `json:"chains"`
-			Rule        string   `json:"rule"`
-			RulePayload string   `json:"rulePayload"`
+			Download    int64     `json:"download"`
+			Start       time.Time `json:"start"`
+			Chains      []string  `json:"chains"`
+			Rule        string    `json:"rule"`
+			RulePayload string    `json:"rulePayload"`
 		} `json:"connections"`
 	}
 	if e := json.Unmarshal(data, &snap); e != nil {
@@ -440,7 +463,16 @@ func snapshot(data []byte, now int64) ([]Event, error) {
 		if host == "" {
 			host = c.Metadata.SniffHost
 		}
-		out = append(out, Event{ID: "conn:" + c.ID, Domain: domainName(host), Source: c.Metadata.SourceIP, Route: route, Rule: fmt.Sprintf("%s/%s", c.Rule, c.RulePayload), Kind: "connection", Time: now})
+		port, _ := strconv.Atoi(c.Metadata.DestinationPort)
+		node := ""
+		if len(c.Chains) > 0 {
+			node = c.Chains[0]
+		}
+		started := int64(0)
+		if !c.Start.IsZero() {
+			started = c.Start.Unix()
+		}
+		out = append(out, Event{ID: "conn:" + c.ID, Domain: domainName(host), Source: c.Metadata.SourceIP, Route: route, Rule: fmt.Sprintf("%s/%s", c.Rule, c.RulePayload), Kind: "connection", Time: now, Network: strings.ToLower(c.Metadata.Network), Port: port, Node: node, Download: c.Download, StartedAt: started})
 	}
 	return out, nil
 }

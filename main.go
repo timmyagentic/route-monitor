@@ -29,14 +29,15 @@ import (
 
 //go:embed web/*
 var assets embed.FS
-var version = "0.5.3"
+var version = "0.6.0"
 
 type Config struct {
-	Router       string `json:"router"`
-	Secret       string `json:"secret"`
-	Listen       string `json:"listen"`
-	Salt         string `json:"salt"`
-	PasswordHash string `json:"passwordHash"`
+	Router       string           `json:"router"`
+	Secret       string           `json:"secret"`
+	Listen       string           `json:"listen"`
+	Salt         string           `json:"salt"`
+	PasswordHash string           `json:"passwordHash"`
+	Correction   CorrectionConfig `json:"correction,omitempty"`
 }
 type Health struct {
 	Connected bool   `json:"connected"`
@@ -60,6 +61,7 @@ type App struct {
 	sessions    map[string]time.Time
 	attempts    map[string][]time.Time
 	subscribers map[chan struct{}]bool
+	correction  *correctionEngine
 }
 
 func randomID() string {
@@ -91,7 +93,7 @@ func configValid(c Config) error {
 	if _, _, e = net.SplitHostPort(c.Listen); e != nil {
 		return errors.New("监听地址格式错误")
 	}
-	return nil
+	return c.Correction.validate()
 }
 func setup(path string) error {
 	if _, e := os.Stat(path); e == nil {
@@ -300,6 +302,47 @@ func (a *App) handler() http.Handler {
 		reply(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { a.sendState(w, r.URL.Query().Get("view")) })
+	mux.HandleFunc("POST /api/correction/pause", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Paused *bool `json:"paused"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body) != nil || body.Paused == nil {
+			fail(w, 400, "请提供暂停状态")
+			return
+		}
+		if a.correction == nil {
+			fail(w, 409, "持续纠偏尚未配置")
+			return
+		}
+		if a.store.setCorrectionPaused(*body.Paused) != nil {
+			fail(w, 500, "无法保存暂停状态")
+			return
+		}
+		a.wakeAuto()
+		a.publish()
+		reply(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/correction/retry", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Domain string `json:"domain"`
+			ID     string `json:"id"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body) != nil || domainName(body.Domain) != body.Domain || body.Domain == "" {
+			fail(w, 400, "域名格式错误")
+			return
+		}
+		if a.correction == nil {
+			fail(w, 409, "持续纠偏尚未配置")
+			return
+		}
+		if e := a.correction.Retry(body.Domain, body.ID); e != nil {
+			fail(w, 409, "当前操作进行中或记录已改变，请刷新后重试")
+			return
+		}
+		a.wakeAuto()
+		a.publish()
+		reply(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /api/detail", func(w http.ResponseWriter, r *http.Request) {
 		domain := r.URL.Query().Get("domain")
 		if domainName(domain) != domain || domain == "" {
@@ -486,6 +529,7 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 		return
 	}
 	bulk := a.store.bulkStatus()
+	correction := a.correctionState()
 	a.mu.Lock()
 	states := make(map[string]Health)
 	for k, v := range a.states {
@@ -495,7 +539,7 @@ func (a *App) sendState(w http.ResponseWriter, view string) {
 	for k, v := range a.lastFrame {
 		frames[k] = v
 	}
-	result := map[string]any{"bulk": bulk, "samplesPerRoute": probeSamples, "auto": auto, "version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
+	result := map[string]any{"correction": correction, "bulk": bulk, "samplesPerRoute": probeSamples, "auto": auto, "version": version, "view": view, "rows": rows, "unknown": unknown, "states": states, "lastFrame": frames, "unparsed": a.unparsed, "probing": a.probing, "probeDomain": a.probeDomain, "now": time.Now().Unix()}
 	a.mu.Unlock()
 	reply(w, result)
 }
@@ -576,7 +620,18 @@ func main() {
 	}
 	a.health("storage", true, "")
 	a.resumeBulk(ctx)
-	go a.autoLoop(ctx)
+	if cfg.Correction.Mode != "" && cfg.Correction.Mode != "off" {
+		if _, e = store.db.Exec(`UPDATE correction_probes SET status='interrupted',finished=? WHERE status='running'`, time.Now().Unix()); e != nil {
+			log.Fatal("纠偏探测恢复失败")
+		}
+		a.correction = &correctionEngine{store: store, config: cfg.Correction, bridge: sshBridge{cfg: cfg.Correction}, now: time.Now}
+		if cfg.Correction.RulesURL != "" {
+			a.correction.rules = newCloudRules(cfg.Correction)
+		}
+		go a.correctionLoop(ctx)
+	} else {
+		go a.autoLoop(ctx)
+	}
 	go a.collect(ctx, "connections", "/connections?interval=5000")
 	go a.collect(ctx, "logs", "/logs?level=warning")
 	srv := &http.Server{Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
