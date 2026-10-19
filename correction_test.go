@@ -665,3 +665,55 @@ func TestConnectionConfirmationUsesRealStartNotFirstSnapshot(t *testing.T) {
 		t.Fatal(c.State)
 	}
 }
+
+func TestDailyRuleLimitAllowsTwentiethAndStopsTwentyFirst(t *testing.T) {
+	for _, used := range []int{19, 20} {
+		t.Run(fmt.Sprint(used), func(t *testing.T) {
+			e, _, r, clock := correctionFixture(t, "auto")
+			*clock = autoDay(*clock).Add(12 * time.Hour)
+			putCorrectionFault(t, e.store, *clock, "DIRECT")
+			for i := 0; i < used; i++ {
+				if _, err := e.store.db.Exec(`INSERT INTO correction_operations VALUES(?,?,?,0)`, randomID(), fmt.Sprintf("old-%d.example.com", i), clock.Unix()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Withdrawals are independently counted and never consume the new-rule cap.
+			if _, err := e.store.db.Exec(`INSERT INTO correction_operations VALUES(?,?,?,1)`, randomID(), "withdrawn.example.com", clock.Unix()); err != nil {
+				t.Fatal(err)
+			}
+			correctionStep(t, e)
+			c := advance(t, e, clock, 181)
+			if used == 19 {
+				if c.State != "publishing" {
+					t.Fatal(c.State, c.Reason)
+				}
+				c = correctionStep(t, e)
+				if c.State != "applying" || r.publishes != 1 {
+					t.Fatal(c.State, r.publishes)
+				}
+			} else if c.State != "queued" || c.Reason != "daily_limit" || r.publishes != 0 {
+				t.Fatal(c.State, c.Reason, r.publishes)
+			}
+		})
+	}
+}
+
+func TestOwnedRollbackStillPreparesAtDailyNewRuleLimit(t *testing.T) {
+	e, b, r, clock := correctionFixture(t, "auto")
+	correctionStep(t, e)
+	advance(t, e, clock, 181)
+	correctionStep(t, e)
+	b.failApply = "generation_failed"
+	c := correctionStep(t, e)
+	for i := 0; i < 20; i++ {
+		if _, err := e.store.db.Exec(`INSERT INTO correction_operations VALUES(?,?,?,0)`, randomID(), fmt.Sprintf("existing-%d.example.com", i), clock.Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		c = correctionStep(t, e)
+	}
+	if c.State != "rolled_back" || r.publishes != 2 || len(r.s.Automatic) != 0 {
+		t.Fatal(c.State, c.Reason, r.publishes)
+	}
+}

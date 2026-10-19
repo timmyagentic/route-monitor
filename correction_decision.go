@@ -7,7 +7,7 @@ import (
 const correctionConfirmDelay = 180
 const correctionEvidenceAge = 15 * 60
 const correctionDailyProbes = 24
-const correctionDailyChanges = 3
+const correctionDailyChanges = 20
 const correctionCooldown = 24 * 60 * 60
 
 func eligibleFault(f Fault) string {
