@@ -106,6 +106,8 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/local.route-monit
 
 ## 开发与验收
 
+协作与合并规则见 [AGENTS.md](AGENTS.md) 和 [GitHub 协作规则](docs/github-governance.md)，正式包分发见 [发布流程](docs/releasing.md)。本地统一门禁为 `./qa/check.sh`；macOS 额外运行 `./qa/build-smoke.sh`。CI 不连接真实路由器、不使用签名私钥，也不等于安装或业务验收。
+
 Go 1.26，`go test -race ./...`、`go vet ./...`、`CODESIGN_IDENTITY=本机Apple签名身份 ./build.sh`。构建不再默认为临时签名。安装器可设置 `ROUTE_MONITOR_NONINTERACTIVE=1` 跳过打开浏览器和回车等待，仍验证真实后台健康。Web 页面是内嵌的原生 HTML/CSS/JS，无第三方 CDN。
 
 主要依据：Mihomo v1.19.32 的 `hub/route/connections.go`、`hub/route/server.go`、`hub/route/proxies.go`、`adapter/adapter.go` 与 https://wiki.metacubex.one/api/ 。
