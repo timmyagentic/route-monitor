@@ -1,8 +1,8 @@
 # 分流体检 / Route Monitor
 
-运行在 Mac 的局域网分流观察与纠偏工具。0.6.0 新增有证据约束的双向自动纠偏；默认关闭，升级保留已有配置和历史。
+运行在 Mac 的局域网分流观察与纠偏工具。首个 GitHub 版本 0.1.0 包含有证据约束的双向自动纠偏；默认关闭，升级保留已有配置和历史。
 
-## 持续双向纠偏（0.6.0）
+## 持续双向纠偏（0.1.0）
 
 同一设备、出口、错误类型与 TCP 443 在 10 分钟内出现至少 2 次新错误后，按当前 DIRECT / JP / HK 三条路径分别取证。每轮每条路径测试目标 2 次、两个对照目标各 1 次，共 12 次 HTTPS HEAD；两轮至少相隔 3 分钟，证据最多保留 15 分钟。仅目标返回 HTTP 200–399、出口对照健康、节点与配置保持一致，才支持调整。
 
@@ -106,11 +106,15 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/local.route-monit
 
 ## 开发与验收
 
+协作与合并规则见 [AGENTS.md](AGENTS.md) 和 [GitHub 协作规则](docs/github-governance.md)，正式包分发见 [发布流程](docs/releasing.md)。本地统一门禁为 `./qa/check.sh`；macOS 额外运行 `./qa/build-smoke.sh`。CI 不连接真实路由器、不使用签名私钥，也不等于安装或业务验收。
+
 Go 1.26，`go test -race ./...`、`go vet ./...`、`CODESIGN_IDENTITY=本机Apple签名身份 ./build.sh`。构建不再默认为临时签名。安装器可设置 `ROUTE_MONITOR_NONINTERACTIVE=1` 跳过打开浏览器和回车等待，仍验证真实后台健康。Web 页面是内嵌的原生 HTML/CSS/JS，无第三方 CDN。
 
 主要依据：Mihomo v1.19.32 的 `hub/route/connections.go`、`hub/route/server.go`、`hub/route/proxies.go`、`adapter/adapter.go` 与 https://wiki.metacubex.one/api/ 。
 
-## 已处理与新错误（0.2.0）
+以下功能说明保留此前内测的演进记录，旧编号不代表已发布的 GitHub 版本；首个 GitHub Release 为 0.1.0。
+
+## 已处理与新错误（内测 0.2.0）
 
 域名行和详情中的“标记已处理”会将其从默认待处理清单隐藏；切换到“已处理”可查看，并可“恢复到清单”。已处理状态保存在本机 SQLite，重启仍保留，不删除原始错误和复测记录。
 
