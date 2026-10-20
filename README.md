@@ -1,5 +1,7 @@
 # 分流体检 / Route Monitor
 
+[项目官网](https://route-monitor.timmyagentic.si) · [网站源码与部署](website/README.md)
+
 运行在 Mac 的局域网分流观察与纠偏工具。首个 GitHub 版本 0.1.0 包含有证据约束的双向自动纠偏；默认关闭，升级保留已有配置和历史。
 
 ## 持续双向纠偏（0.1.0）
