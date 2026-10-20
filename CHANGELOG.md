@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+
+- Refresh the product website with the timmyagentic visual style while preserving installation, download and documentation paths.
+
 - Add the public Route Monitor website with download, setup, correction boundaries and deployment configuration.
 
 ## [0.1.0] - 2026-10-20
