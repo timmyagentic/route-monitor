@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- No changes yet.
+- Add the public Route Monitor website with download, setup, correction boundaries and deployment configuration.
 
 ## [0.1.0] - 2026-10-20
 
