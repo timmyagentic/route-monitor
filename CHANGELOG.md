@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add the project MIT license and document the separate third-party code and font licenses.
+
 
 - Refresh the product website with the timmyagentic visual style while preserving installation, download and documentation paths.
 
