@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 将 Clash Verge Monitor 官网入口切换到更名后的正式域名。
+
 - 将官网关联项目入口名称更新为 Clash Verge Monitor。
 
 - 将 MIT 项目许可正文加入后续分发 ZIP 及 macOS App 内，复制应用后仍可保留。

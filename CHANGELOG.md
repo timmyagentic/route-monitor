@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Point the Clash Verge Monitor website link to its renamed canonical domain.
+
 - Update the related-project website link label to Clash Verge Monitor.
 
 - Include the MIT project notice in future distribution ZIPs and inside the macOS app.
