@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Update the related-project website link label to Clash Verge Monitor.
+
 - Include the MIT project notice in future distribution ZIPs and inside the macOS app.
 
 - Add the project MIT license and document the separate third-party code and font licenses.
