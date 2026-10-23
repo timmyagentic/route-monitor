@@ -4,11 +4,13 @@ cd "$(dirname "$0")"
 mkdir -p build/RouteMonitor
 : "${CODESIGN_IDENTITY:?Set CODESIGN_IDENTITY to an Apple-issued signing identity}"
 APP='build/RouteMonitor/Route Monitor.app'
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/route-monitor-arm64 .
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/route-monitor-amd64 .
 lipo -create -output "$APP/Contents/MacOS/route-monitor" build/route-monitor-arm64 build/route-monitor-amd64
 cp Info.plist "$APP/Contents/Info.plist"
+cp LICENSE "$APP/Contents/Resources/LICENSE"
+cp LICENSE build/RouteMonitor/LICENSE
 VERSION="$(sed -n 's/^var version = "\(.*\)"$/\1/p' main.go)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
