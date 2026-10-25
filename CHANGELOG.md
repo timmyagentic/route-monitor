@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add matching README/website Agent installation prompts and a guide covering verified releases, local credential entry and background observation acceptance.
+
 - Point the Clash Verge Monitor website link to its renamed canonical domain.
 
 - Update the related-project website link label to Clash Verge Monitor.

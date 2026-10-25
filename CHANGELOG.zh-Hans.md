@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 在 README 与官网同步一句 Prompt 安装入口，补齐正式包校验、本机凭据填写、权限和后台观察验收流程。
+
 - 将 Clash Verge Monitor 官网入口切换到更名后的正式域名。
 
 - 将官网关联项目入口名称更新为 Clash Verge Monitor。
