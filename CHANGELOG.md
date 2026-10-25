@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Show the real web interface with fictional network data, improve mobile installation text, and add a share preview and a single portfolio footer.
+
 - Add matching README/website Agent installation prompts and a guide covering verified releases, local credential entry and background observation acceptance.
 
 - Point the Clash Verge Monitor website link to its renamed canonical domain.
