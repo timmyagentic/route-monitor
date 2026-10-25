@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+
+- Standardize squash PR merging and automatic remote task-branch deletion while retaining local branches and worktrees for the existing archive workflow.
 - Show the real web interface with fictional network data, improve mobile installation text, and add a share preview and a single portfolio footer.
 
 - Add matching README/website Agent installation prompts and a guide covering verified releases, local credential entry and background observation acceptance.
