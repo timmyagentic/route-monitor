@@ -15,11 +15,11 @@
 
 从 https://github.com/timmyagentic/route-monitor/releases/latest 一次确定正式 tag，
 下载同版 ZIP、`.zip.sha256` 和 provenance JSON 到新临时目录，检查 SHA-256 后
-再安全解压。当前正式包为 `RouteMonitor-0.1.0-macOS.zip`；不得把未发布 main
+再安全解压。当前正式包为 `RouteMonitor-0.1.1-macOS.zip`；不得把未发布 main
 编译包当成正式发行版，也不要覆盖用户已有源码目录。
 
 ```sh
-shasum -a 256 -c RouteMonitor-0.1.0-macOS.zip.sha256
+shasum -a 256 -c RouteMonitor-0.1.1-macOS.zip.sha256
 codesign --verify --deep --strict "/absolute/extracted/Route Monitor.app"
 ```
 
@@ -33,6 +33,10 @@ quarantine 或更改系统安全设置。签名/哈希不匹配时停止并报�
 新安装会询问路由器 API 地址、已有管理密钥和单独的页面访问密码（至少 12 字符）。
 用户直接在不回显输入的终端填写，不把密钥或密码发送到聊天、日志或脚本参数。
 已有配置时安装器会验证连接并保留配置与数据库。
+
+已有持续纠偏配置时，Mac 安装器不会替换路由器上的桥接程序。0.1.1 的 DNS
+负答案解析修复需要另行更新路由器上相应架构的 `route-bridge`；先取得设备修改
+授权，备份旧程序，核对新程序哈希并验证。未更新时应报告该修复尚未生效。
 
 系统提示本地网络或防火墙权限时，让用户为 Route Monitor 完成对应授权。
 不要把终端中的连接成功当作后台 App 权限成功。安装器会等待后台连接、错误订阅

@@ -32,6 +32,8 @@
 
 普通安装无需 SSH；持续纠偏需要已配置、已核验主机密钥的路由器 SSH。包内 `router/route-bridge-linux-arm64` 适用于本次验收的 ARM64 路由器，另提供 Linux amd64。放到路由器上的私有可执行目录（例如 `/data/other/ShellCrash/tools/route-bridge`），文件权限 0700。桥接默认使用 `/data/other/ShellCrash`、`/tmp/ShellCrash/config.yaml` 和 `/tmp/ShellCrash/CrashCore`；其他布局必须用同一台路由器上的包装脚本明确传入路径。
 
+Mac 安装器只更新本机应用，不会替换路由器上的桥接程序。已有持续纠偏配置升级到 0.1.1 时，DNS 负答案解析修复需在获得设备修改授权后另行更新相应架构的桥接程序，并备份旧程序、核对哈希和验证运行。
+
 在 Mac 的私有 `config.json` 中添加下列对象，路径与主机名应取自本机配置：
 
 ```json
