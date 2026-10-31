@@ -140,29 +140,30 @@ type RuleReceipt struct {
 	NonRulesHash    string         `json:"nonRulesHash"`
 }
 type Correction struct {
-	ID              string               `json:"id"`
-	Fault           Fault                `json:"fault"`
-	State           string               `json:"state"`
-	Reason          string               `json:"reason"`
-	Created         int64                `json:"created"`
-	Updated         int64                `json:"updated"`
-	Next            int64                `json:"next"`
-	Attempts        int                  `json:"attempts"`
-	Evidence        []Evidence           `json:"evidence,omitempty"`
-	Decision        Decision             `json:"decision"`
-	Verification    []Evidence           `json:"verification,omitempty"`
-	Request         *RuleRequest         `json:"request,omitempty"`
-	Preview         *RulePreview         `json:"-"`
-	Receipt         *RuleReceipt         `json:"receipt,omitempty"`
-	ApplyRequest    *routebridge.Request `json:"-"`
-	AppliedAt       int64                `json:"appliedAt,omitempty"`
-	ObservedAt      int64                `json:"observedAt,omitempty"`
-	RollbackReceipt *RuleReceipt         `json:"rollbackReceipt,omitempty"`
-	Failures        int                  `json:"failures"`
-	SentAt          int64                `json:"sentAt,omitempty"`
-	Rollback        bool                 `json:"rollback"`
-	LastError       int64                `json:"lastError"`
-	RetryAfter      int64                `json:"retryAfter"`
+	ID                   string               `json:"id"`
+	Fault                Fault                `json:"fault"`
+	State                string               `json:"state"`
+	Reason               string               `json:"reason"`
+	Created              int64                `json:"created"`
+	Updated              int64                `json:"updated"`
+	Next                 int64                `json:"next"`
+	Attempts             int                  `json:"attempts"`
+	Evidence             []Evidence           `json:"evidence,omitempty"`
+	Decision             Decision             `json:"decision"`
+	Verification         []Evidence           `json:"verification,omitempty"`
+	VerificationAttempts int                  `json:"verificationAttempts,omitempty"`
+	Request              *RuleRequest         `json:"request,omitempty"`
+	Preview              *RulePreview         `json:"-"`
+	Receipt              *RuleReceipt         `json:"receipt,omitempty"`
+	ApplyRequest         *routebridge.Request `json:"-"`
+	AppliedAt            int64                `json:"appliedAt,omitempty"`
+	ObservedAt           int64                `json:"observedAt,omitempty"`
+	RollbackReceipt      *RuleReceipt         `json:"rollbackReceipt,omitempty"`
+	Failures             int                  `json:"failures"`
+	SentAt               int64                `json:"sentAt,omitempty"`
+	Rollback             bool                 `json:"rollback"`
+	LastError            int64                `json:"lastError"`
+	RetryAfter           int64                `json:"retryAfter"`
 }
 
 // Private durable fields are stored explicitly but are not returned to the UI.
@@ -192,6 +193,28 @@ func (s *Store) initCorrection() error {
  CREATE TABLE IF NOT EXISTS correction_settings(id INTEGER PRIMARY KEY,paused INTEGER NOT NULL);
  INSERT OR IGNORE INTO correction_settings VALUES(1,0);`)
 	return e
+}
+
+// Only old budget waits on already-applied changes are resumed. Receipts,
+// attempts and ordinary queues stay intact; the new reason makes this one-shot.
+func (s *Store) resumeLegacyVerification(now int64) error {
+	items, err := s.correctionRows(`SELECT body FROM correction_cases WHERE state='verifying'
+ AND json_extract(body,'$.reason')='daily_limit'`)
+	if err != nil {
+		return err
+	}
+	for _, c := range items {
+		if c.Receipt == nil || c.AppliedAt == 0 {
+			continue
+		}
+		c.Next, c.Updated, c.Reason = now, now, "verification_resumed"
+		// Retain known legacy attempts rather than granting a fresh budget.
+		c.VerificationAttempts = max(c.VerificationAttempts, c.Failures, len(c.Verification))
+		if err := s.saveCorrection(c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func decodeCorrection(body string) (Correction, error) {

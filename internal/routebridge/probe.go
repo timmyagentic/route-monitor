@@ -200,18 +200,30 @@ func resolvePublic(ctx context.Context, client *http.Client, endpoint, domain st
 	if e != nil || len(b) > 65536 {
 		return nil, "dns_response"
 	}
-	var answer dnsmessage.Message
-	if answer.Unpack(b) != nil || answer.ID != id || !answer.Response || len(answer.Questions) != 1 || answer.Questions[0] != msg.Questions[0] {
+	var parser dnsmessage.Parser
+	header, err := parser.Start(b)
+	if err != nil || header.ID != id || !header.Response || header.Truncated {
 		return nil, "dns_response"
 	}
-	if answer.RCode == dnsmessage.RCodeNameError {
+	questions, err := parser.AllQuestions()
+	if err != nil || len(questions) != 1 || questions[0] != msg.Questions[0] {
+		return nil, "dns_response"
+	}
+	answers, err := parser.AllAnswers()
+	// Only the answer addresses are used. Bounds-check the other sections
+	// without decoding unrelated SOA mailbox names (which may contain dots
+	// inside a wire label that dnsmessage.Name cannot represent).
+	if err != nil || parser.SkipAllAuthorities() != nil || parser.SkipAllAdditionals() != nil {
+		return nil, "dns_response"
+	}
+	if header.RCode == dnsmessage.RCodeNameError {
 		return nil, "nxdomain"
 	}
-	if answer.RCode != dnsmessage.RCodeSuccess {
+	if header.RCode != dnsmessage.RCodeSuccess {
 		return nil, "dns_failure"
 	}
 	var ips []net.IP
-	for _, a := range answer.Answers {
+	for _, a := range answers {
 		if v, ok := a.Body.(*dnsmessage.AResource); ok {
 			ip := net.IPv4(v.A[0], v.A[1], v.A[2], v.A[3])
 			if !PublicIP(ip) {

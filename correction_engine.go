@@ -112,30 +112,33 @@ func (e *correctionEngine) watch() error {
 	return nil
 }
 
-func (e *correctionEngine) probeBudget() (bool, int64, error) {
+func (e *correctionEngine) discoveryBudget() (bool, int64, error) {
 	var count int
-	var last int64
-	err := e.store.db.QueryRow(`SELECT COUNT(CASE WHEN started>=? THEN 1 END),COALESCE(MAX(started),0) FROM correction_probes`, autoDay(e.now()).Unix()).Scan(&count, &last)
+	err := e.store.db.QueryRow(`SELECT COUNT(*) FROM correction_probes WHERE started>=?`, autoDay(e.now()).Unix()).Scan(&count)
 	if err != nil {
 		return false, 0, err
 	}
 	if count >= correctionDailyProbes {
 		return false, autoDay(e.now()).AddDate(0, 0, 1).Unix(), nil
 	}
-	if last+autoSpacing > e.now().Unix() {
-		return false, last + autoSpacing, nil
-	}
 	return true, 0, nil
 }
 func (e *correctionEngine) runProbe(ctx context.Context, c *Correction) (*Evidence, error) {
 	id := randomID()
 	started := e.now().Unix()
-	if _, err := e.store.db.Exec(`INSERT INTO correction_probes VALUES(?,?,?,0,'running')`, id, c.Fault.Domain, started); err != nil {
-		return nil, err
+	// Discovery uses the daily ledger. Owned-rule verification is counted
+	// durably on the correction before any network work starts.
+	discovery := c.Receipt == nil
+	if discovery {
+		if _, err := e.store.db.Exec(`INSERT INTO correction_probes VALUES(?,?,?,0,'running')`, id, c.Fault.Domain, started); err != nil {
+			return nil, err
+		}
 	}
 	snapshot, err := e.bridge.Call(ctx, routebridge.Request{Operation: "inspect"})
 	if err != nil || snapshot.Snapshot == nil {
-		e.store.db.Exec(`UPDATE correction_probes SET finished=?,status='failed' WHERE id=?`, e.now().Unix(), id)
+		if discovery {
+			e.store.db.Exec(`UPDATE correction_probes SET finished=?,status='failed' WHERE id=?`, e.now().Unix(), id)
+		}
 		return nil, correctionError{errorCode(err, "bridge_unavailable")}
 	}
 	result, err := e.bridge.Call(ctx, routebridge.Request{Operation: "probe", ID: id, Domain: c.Fault.Domain, Port: 443, Controls: e.config.Controls, ExpectedSnapshot: snapshot.Snapshot.ID})
@@ -143,8 +146,10 @@ func (e *correctionEngine) runProbe(ctx context.Context, c *Correction) (*Eviden
 	if err != nil {
 		status = "failed"
 	}
-	if _, dbErr := e.store.db.Exec(`UPDATE correction_probes SET finished=?,status=? WHERE id=?`, e.now().Unix(), status, id); dbErr != nil {
-		return nil, dbErr
+	if discovery {
+		if _, dbErr := e.store.db.Exec(`UPDATE correction_probes SET finished=?,status=? WHERE id=?`, e.now().Unix(), status, id); dbErr != nil {
+			return nil, dbErr
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -178,12 +183,12 @@ func (e *correctionEngine) testCase(ctx context.Context, c *Correction) error {
 	if !fresh {
 		return e.closeCase(c, "resolved", "no_recent_fault", 600)
 	}
-	ok, next, err := e.probeBudget()
+	ok, next, err := e.discoveryBudget()
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return e.save(c, c.State, "daily_limit", next)
+		return e.save(c, c.State, "probe_daily_limit", next)
 	}
 	if err = e.save(c, "probing", "awaiting_evidence", e.now().Unix()+90); err != nil {
 		return err
@@ -230,7 +235,7 @@ func (e *correctionEngine) prepareChange(ctx context.Context, c *Correction) err
 			return err
 		}
 		if pending > 0 {
-			return e.save(c, "planning", "another_change_pending", e.now().Unix()+autoSpacing)
+			return e.save(c, "planning", "another_change_pending", e.now().Unix()+correctionConfirmDelay)
 		}
 	}
 	if e.rules == nil {
@@ -246,7 +251,7 @@ func (e *correctionEngine) prepareChange(ctx context.Context, c *Correction) err
 	}
 	if !c.Rollback && (len(c.Evidence) == 0 || snap.Snapshot.ID != c.Evidence[len(c.Evidence)-1].Snapshot.ID || e.now().Unix()-c.Evidence[0].Finished > correctionEvidenceAge) {
 		c.Evidence = nil
-		return e.save(c, "queued", "configuration_changed", e.now().Unix()+autoSpacing)
+		return e.save(c, "queued", "configuration_changed", e.now().Unix()+correctionConfirmDelay)
 	}
 	routerAtBase := snap.Snapshot.RawRulesHash == s.RulesHash
 	if c.Rollback && c.Receipt != nil && snap.Snapshot.RawRulesHash == c.Receipt.BeforeRulesHash {
@@ -281,7 +286,7 @@ func (e *correctionEngine) prepareChange(ctx context.Context, c *Correction) err
 		}
 		if n >= correctionDailyChanges {
 			c.Evidence = nil
-			return e.save(c, "queued", "daily_limit", autoDay(e.now()).AddDate(0, 0, 1).Unix())
+			return e.save(c, "queued", "publish_daily_limit", autoDay(e.now()).AddDate(0, 0, 1).Unix())
 		}
 	}
 	r := RuleRequest{Domain: c.Fault.Domain, Action: action, RequestID: randomID(), ExpectedRuleID: expected, ExpectedRevision: s.Revision, ExpectedRelease: s.Release, Reason: "network-difference"}
@@ -415,13 +420,14 @@ func (e *correctionEngine) applyChange(ctx context.Context, c *Correction) error
 	}
 	c.AppliedAt = e.now().Unix()
 	c.Verification = nil
+	c.VerificationAttempts = 0
 	c.Failures = 0
 	c.ApplyRequest = nil
 	c.Preview = nil
 	if c.Rollback {
 		return e.closeCase(c, "rolled_back", "rolled_back", correctionCooldown)
 	}
-	return e.save(c, "verifying", "applied", e.now().Unix()+autoSpacing)
+	return e.save(c, "verifying", "applied", e.now().Unix())
 }
 
 func usableFor(action string, ev Evidence) bool {
@@ -444,20 +450,23 @@ func usableFor(action string, ev Evidence) bool {
 	return true
 }
 func (e *correctionEngine) verifyChange(ctx context.Context, c *Correction) error {
-	ok, next, err := e.probeBudget()
-	if err != nil {
-		return err
+	if c.Receipt == nil || c.AppliedAt == 0 {
+		return e.save(c, "attention", "invalid_operation", 0)
 	}
-	if !ok {
-		return e.save(c, "verifying", "daily_limit", next)
+	if c.VerificationAttempts >= correctionVerificationLimit {
+		return e.save(c, "attention", "verification_limit", 0)
+	}
+	c.VerificationAttempts++
+	if err := e.save(c, "verifying", "verification_running", e.now().Unix()+correctionConfirmDelay); err != nil {
+		return err
 	}
 	ev, err := e.runProbe(ctx, c)
 	if err != nil {
-		return e.deferError(c, errorCode(err, "bridge_unavailable"))
+		return e.retryVerification(c, errorCode(err, "bridge_unavailable"))
 	}
 	state, err := e.rules.State(ctx)
 	if err != nil {
-		return e.deferError(c, "cloud_unavailable")
+		return e.retryVerification(c, "cloud_unavailable")
 	}
 	want := c.Decision.Action
 	receipt := c.Receipt
@@ -514,11 +523,15 @@ func (e *correctionEngine) verifyChange(ctx context.Context, c *Correction) erro
 		c.Failures = 0
 		return e.save(c, "rollback", "rollback", e.now().Unix())
 	}
-	c.Failures++
-	if c.Failures >= 3 {
-		return e.save(c, "attention", "verification_failed", 0)
+	return e.retryVerification(c, "verification_failed")
+}
+
+func (e *correctionEngine) retryVerification(c *Correction, reason string) error {
+	state, next := "verifying", e.now().Unix()+correctionConfirmDelay
+	if c.VerificationAttempts >= correctionVerificationLimit {
+		state, next = "attention", 0
 	}
-	return e.save(c, "verifying", "verification_failed", ev.Finished+correctionConfirmDelay)
+	return e.save(c, state, reason, next)
 }
 
 func (e *correctionEngine) Step(ctx context.Context) (bool, error) {
@@ -550,7 +563,7 @@ func (e *correctionEngine) Step(ctx context.Context) (bool, error) {
 	case "queued", "confirming":
 		return true, e.testCase(ctx, &c)
 	case "probing":
-		return true, e.save(&c, "queued", "interrupted", e.now().Unix()+autoSpacing)
+		return true, e.save(&c, "queued", "interrupted", e.now().Unix())
 	case "publishing":
 		return true, e.publishChange(ctx, &c)
 	case "applying":
@@ -593,6 +606,8 @@ func (e *correctionEngine) Retry(domain, id string) error {
 			return e.save(&c, "applying", "applying", e.now().Unix())
 		}
 		if c.AppliedAt > 0 {
+			c.VerificationAttempts = 0
+			c.Verification = nil
 			return e.save(&c, "verifying", "verification_failed", e.now().Unix())
 		}
 	}

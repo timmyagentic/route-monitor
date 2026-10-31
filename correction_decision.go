@@ -4,10 +4,11 @@ import (
 	"route-monitor/internal/routebridge"
 )
 
-const correctionConfirmDelay = 180
+const correctionConfirmDelay = 30
 const correctionEvidenceAge = 15 * 60
 const correctionDailyProbes = 24
 const correctionDailyChanges = 20
+const correctionVerificationLimit = 3
 const correctionCooldown = 24 * 60 * 60
 
 func eligibleFault(f Fault) string {
@@ -173,12 +174,17 @@ var correctionReasons = map[string]string{
 	"cloud_unavailable": "无法确认云端规则状态", "bridge_unavailable": "路由器探测程序不可用", "local_rule_protected": "与路由器人工规则冲突，未覆盖",
 	"cloud_conflict": "云端修订或人工规则有冲突，未覆盖", "subscription_drift": "路由器与云端基线不一致，暂停自动应用",
 	"publish_unknown": "发布结果尚未确认，正在查询原请求回执", "published": "规则已发布，等待终端应用",
-	"applying": "正在应用并核对路由器规则", "applied": "路由器已加载，等待路径复验", "watching": "路径复验通过，等待真实设备连接证据",
+	"applying": "正在应用并核对路由器规则", "applied": "路由器已加载，准备立即复验", "watching": "路径复验通过，等待真实设备连接证据",
 	"confirmed": "已加载、路径复验通过，并观察到新路径接收数据；不等同 App 业务验收",
 	"rollback":  "检测到回归，正在撤销本次自动调整", "rolled_back": "本次自动调整已撤销并恢复终端规则",
 	"manual_intervention": "规则已被其他操作改变，保留当前配置并等待人工处理", "cooldown": "本次故障已结束，冷却后可由新错误重新触发",
-	"daily_limit": "达到当日自动探测或发布上限", "interrupted": "上次探测中断，将按限流重新确认", "no_recent_fault": "没有足够的新错误，本轮结束",
-	"apply_failed": "终端应用未通过；先确认现场状态，再决定撤回", "verification_failed": "修改后的路径复验失败，等待确认是否回滚",
+	"daily_limit": "旧版等待记录：探测间隔或当日额度受限", "interrupted": "上次探测中断，重新确认", "no_recent_fault": "没有足够的新错误，本轮结束",
+	"probe_daily_limit":    "今日普通探测额度已用完，等待次日恢复；已应用规则的复验不受影响",
+	"publish_daily_limit":  "今日新增规则额度已用完，等待次日重新确认",
+	"verification_running": "正在复验已应用规则",
+	"verification_resumed": "已恢复旧版限流延迟的复验",
+	"verification_limit":   "自动复验次数已用完，需要人工重新核对",
+	"apply_failed":         "终端应用未通过；先确认现场状态，再决定撤回", "verification_failed": "修改后的路径复验未通过",
 }
 
 func correctionReason(code string) string {

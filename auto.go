@@ -122,10 +122,10 @@ func (a *App) releaseProbe() {
 }
 
 // Reserve the same slot as manual probes. Stream health gates all automatic network work.
-func (a *App) reserveAuto(now time.Time) bool {
+func (a *App) reserveProbe(now time.Time, manualCooldown time.Duration) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.bulkRunning || a.probing || now.Sub(a.lastProbe) < time.Minute || !a.states["connections"].Connected || !a.states["logs"].Connected || !a.states["storage"].Connected || now.Unix()-a.lastFrame["connections"] > 15 {
+	if a.bulkRunning || a.probing || now.Sub(a.lastProbe) < manualCooldown || !a.states["connections"].Connected || !a.states["logs"].Connected || !a.states["storage"].Connected || now.Unix()-a.lastFrame["connections"] > 15 {
 		return false
 	}
 	a.probing = true
@@ -139,7 +139,7 @@ func (a *App) autoLoop(ctx context.Context) {
 		case <-a.autoWake:
 		}
 		now := time.Now()
-		if !a.reserveAuto(now) {
+		if !a.reserveProbe(now, time.Minute) {
 			continue
 		}
 		domain, next, e := a.store.claimAuto(now)

@@ -94,6 +94,10 @@ func openStore(path string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
+	if e = s.resumeLegacyVerification(time.Now().Unix()); e != nil {
+		db.Close()
+		return nil, e
+	}
 	if e = s.initBulk(); e != nil {
 		db.Close()
 		return nil, e
