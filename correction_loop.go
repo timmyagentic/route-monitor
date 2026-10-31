@@ -16,9 +16,9 @@ func (a *App) correctionState() map[string]any {
 	}
 	views := make([]map[string]any, 0, len(rows))
 	for _, c := range rows {
-		views = append(views, map[string]any{"id": c.ID, "domain": c.Fault.Domain, "source": c.Fault.Source, "network": c.Fault.Network, "port": c.Fault.Port, "route": c.Fault.Route, "state": c.State, "reason": correctionReason(c.Reason), "reasonCode": c.Reason, "decision": c.Decision, "updated": c.Updated, "next": c.Next, "appliedAt": c.AppliedAt, "observedAt": c.ObservedAt, "receipt": c.Receipt, "rollbackReceipt": c.RollbackReceipt, "evidence": c.Evidence, "verification": c.Verification})
+		views = append(views, map[string]any{"id": c.ID, "domain": c.Fault.Domain, "source": c.Fault.Source, "network": c.Fault.Network, "port": c.Fault.Port, "route": c.Fault.Route, "state": c.State, "reason": correctionReason(c.Reason), "reasonCode": c.Reason, "decision": c.Decision, "updated": c.Updated, "next": c.Next, "appliedAt": c.AppliedAt, "observedAt": c.ObservedAt, "receipt": c.Receipt, "rollbackReceipt": c.RollbackReceipt, "evidence": c.Evidence, "verification": c.Verification, "verificationAttempts": c.VerificationAttempts})
 	}
-	return map[string]any{"mode": mode, "paused": a.store.correctionPaused(), "cases": views, "dailyProbeLimit": correctionDailyProbes, "dailyChangeLimit": correctionDailyChanges, "rulesConfigured": a.cfg.Correction.RulesURL != ""}
+	return map[string]any{"mode": mode, "paused": a.store.correctionPaused(), "cases": views, "dailyProbeLimit": correctionDailyProbes, "dailyChangeLimit": correctionDailyChanges, "confirmDelaySeconds": correctionConfirmDelay, "verificationLimit": correctionVerificationLimit, "rulesConfigured": a.cfg.Correction.RulesURL != ""}
 }
 
 func (a *App) correctionLoop(ctx context.Context) {
@@ -41,7 +41,7 @@ func (a *App) correctionLoop(ctx context.Context) {
 			timer = nil
 			due = nil
 		}
-		if !a.reserveAuto(time.Now()) {
+		if !a.reserveProbe(time.Now(), 0) {
 			continue
 		}
 		_, err := a.correction.Step(ctx)

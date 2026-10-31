@@ -691,7 +691,7 @@ func TestDailyRuleLimitAllowsTwentiethAndStopsTwentyFirst(t *testing.T) {
 				if c.State != "applying" || r.publishes != 1 {
 					t.Fatal(c.State, r.publishes)
 				}
-			} else if c.State != "queued" || c.Reason != "daily_limit" || r.publishes != 0 {
+			} else if c.State != "queued" || c.Reason != "publish_daily_limit" || r.publishes != 0 {
 				t.Fatal(c.State, c.Reason, r.publishes)
 			}
 		})

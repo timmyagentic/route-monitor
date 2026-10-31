@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Separate bounded, restart-safe verification from discovery quotas; remove global correction spacing, confirm after 30 seconds, resume legacy budget waits, and clarify queue/verification status.
+- Classify negative DNS answers even when an ancillary SOA mailbox cannot be represented by the DNS parser, preserving response and public-address checks.
+
 
 - Standardize squash PR merging and automatic remote task-branch deletion while retaining local branches and worktrees for the existing archive workflow.
 - Show the real web interface with fictional network data, improve mobile installation text, and add a share preview and a single portfolio footer.

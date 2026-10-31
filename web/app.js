@@ -57,25 +57,27 @@ $('logout').onclick=async()=>{try{await api('/api/logout',{});}finally{showLogin
 $('handlingView').onchange=()=>{if($('handlingView').value!=='active')$('onlyIssues').checked=false;if($('detail').open)$('detail').close();refresh();};
 $('search').oninput=()=>state&&render();$('onlyIssues').onchange=()=>state&&render();$('closeDetail').onclick=()=>{$('detail').close();selected=null;};$('detail').addEventListener('close',()=>{selected=null;});
 $('probe').onclick=async()=>{$('probe').disabled=true;try{await api('/api/probe',{domain:selected});$('probeMessage').textContent='参考复测已开始。此按钮只收集参考结果，不直接触发规则发布。';await refresh();}catch(e){$('probeMessage').textContent=e.message;$('probe').disabled=false;}};
-const correctionLabels={queued:'等待初测',probing:'正在取证',confirming:'等待分时确认',planning:'发布前校验',suggested:'建议已就绪',prepared:'等待继续',publishing:'确认发布结果',applying:'路由器加载中',verifying:'路径复验中',watching:'等待真实流量',confirmed:'链路已确认',rollback:'正在撤回',rolled_back:'已撤回',blocked:'受保护',inconclusive:'证据不足',resolved:'本轮结束',attention:'需要处理'};
+const correctionLabels={queued:'等待初测',probing:'正在取证',confirming:'等待分时确认',planning:'发布前校验',suggested:'建议已就绪',prepared:'等待继续',publishing:'确认发布结果',applying:'路由器加载中',verifying:'待完成复验',watching:'等待真实流量',confirmed:'链路已确认',rollback:'正在撤回',rolled_back:'已撤回',blocked:'受保护',inconclusive:'证据不足',resolved:'本轮结束',attention:'需要处理'};
 function renderCorrection(){
  const c=state.correction||{mode:'off',cases:[]};const active=c.mode!=='off';
  $('modeBadge').textContent=c.mode==='auto'?(c.paused?'已暂停新增调整':'自动纠偏'):c.mode==='observe'?'观察决策 · 不发布':'只观察 · 不改规则';
  $('correctionMode').textContent=c.error||(c.mode==='auto'?'自动模式：证据、发布、加载与复验分别跟踪。':c.mode==='observe'?'观察模式：持续复测并生成建议，尚未开启规则发布。':'持续纠偏尚未配置。现有采集与参考复测继续运行。');
- $('correctionScope').textContent=active?'10 分钟内同一设备、协议和端口出现 2 次新错误后取证；两轮分时确认。每日最多 '+c.dailyProbeLimit+' 轮探测、'+c.dailyChangeLimit+' 次新增调整。暂停新增调整后，已开始发送的调整仍会完成应用、验证或撤回。':'需配置路由器探测程序和规则服务后启用；启用自动模式需要在本机明确设置。';
+ $('correctionScope').textContent=active?'10 分钟内同一设备、协议和端口出现 2 次新错误后取证；确认间隔 '+c.confirmDelaySeconds+' 秒，不同域名串行取证。每日最多 '+c.dailyProbeLimit+' 轮普通探测、'+c.dailyChangeLimit+' 次新增调整；已应用规则的复验独立计数，上限 '+c.verificationLimit+' 次。暂停新增调整后，已开始发送的调整仍会完成应用、验证或撤回。':'需配置路由器探测程序和规则服务后启用；启用自动模式需要在本机明确设置。';
  $('correctionPause').hidden=!active;$('correctionPause').textContent=c.paused?'继续新增调整':'暂停新增调整';
  $('correctionCases').replaceChildren();const cases=c.cases||[];$('correctionEmpty').hidden=cases.length>0;
  for(const item of cases.slice(0,12)){
   const card=node('article','', 'correction-card');const head=node('div','', 'correction-card-head');head.append(node('strong',item.domain,'domain'),node('span',correctionLabels[item.state]||item.state,'badge '+(['attention','blocked','inconclusive'].includes(item.state)?'reopened':item.state==='confirmed'?'handled':'')));
   const direction=item.decision.action==='PROXY'?'直连 → 代理':item.decision.action==='DIRECT'?'代理 → 直连':'保持当前规则';
   card.append(head,node('p',direction,'correction-direction'),node('p',item.reason),node('small',item.source+' · '+(item.network||'未知协议').toUpperCase()+':'+item.port+' · '+fmt(item.updated)));
+  if(item.next>0)card.append(node('small','下次处理：'+fmt(item.next)));
+  if(item.appliedAt)card.append(node('small','自动复验：'+(item.verificationAttempts||0)+'/'+c.verificationLimit+' 次'));
   const button=node('button','查看证据');button.setAttribute('aria-label','查看纠偏证据 '+item.domain);button.onclick=()=>{selectedCorrection=item.id;$('correctionDetail').showModal();renderCorrectionDetail(item);};card.append(button);if(active&&['attention','blocked','inconclusive','suggested'].includes(item.state)){const retry=node('button','重新核对');retry.onclick=async()=>{retry.disabled=true;try{await api('/api/correction/retry',{domain:item.domain,id:item.id});await refresh();}catch(e){$('notice').textContent=e.message;retry.disabled=false;}};card.append(retry);}$('correctionCases').append(card);
  }
  if(selectedCorrection&&$('correctionDetail').open){const item=cases.find(x=>x.id===selectedCorrection);if(item)renderCorrectionDetail(item);}
 }
 function renderCorrectionDetail(item){
  $('correctionDomain').textContent=item.domain;$('correctionReason').textContent=item.reason;$('correctionTimeline').replaceChildren();
- const steps=[['分时证据',item.decision.confirmed],['云端已发布',!!item.receipt],['路由器已加载',!!item.appliedAt],['真实连接接收数据',!!item.observedAt]];
+ const steps=[['分时证据',item.decision.confirmed],['云端已发布',!!item.receipt],['路由器已加载',!!item.appliedAt],['路径复验通过',['watching','confirmed'].includes(item.state)],['真实连接接收数据',!!item.observedAt]];
  for(const [label,done]of steps)$('correctionTimeline').append(node('span',(done?'✓ ':'○ ')+label,done?'complete':''));
  if(item.rollbackReceipt)$('correctionTimeline').append(node('span','↶ 已发布撤回版本','complete'));
  $('correctionEvidence').replaceChildren();

@@ -198,28 +198,28 @@ func TestAutoAtomicClaim(t *testing.T) {
 func TestAutoHealthAndSharedSlot(t *testing.T) {
 	a := newTestApp(t)
 	now := time.Now()
-	if a.reserveAuto(now) {
+	if a.reserveProbe(now, time.Minute) {
 		t.Fatal("offline")
 	}
 	for _, k := range []string{"logs", "connections", "storage"} {
 		a.states[k] = Health{Connected: true}
 	}
 	a.lastFrame["connections"] = now.Unix() - 20
-	if a.reserveAuto(now) {
+	if a.reserveProbe(now, time.Minute) {
 		t.Fatal("stale")
 	}
 	a.lastFrame["connections"] = now.Unix()
 	a.probing = true
-	if a.reserveAuto(now) {
+	if a.reserveProbe(now, time.Minute) {
 		t.Fatal("manual overlaps")
 	}
 	a.probing = false
-	if !a.reserveAuto(now) || a.reserveAuto(now) {
+	if !a.reserveProbe(now, time.Minute) || a.reserveProbe(now, time.Minute) {
 		t.Fatal("slot")
 	}
 	a.releaseProbe()
 	a.lastProbe = now
-	if a.reserveAuto(now) {
+	if a.reserveProbe(now, time.Minute) {
 		t.Fatal("manual cooldown")
 	}
 }
