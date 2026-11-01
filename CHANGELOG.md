@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Download the current macOS release from the website and inspect a recorded direct-route error in the homepage case study.
+
 ## [0.1.1] - 2026-10-31
 
 - Separate bounded, restart-safe verification from discovery quotas; remove global correction spacing, confirm after 30 seconds, resume legacy budget waits, and clarify queue/verification status.
