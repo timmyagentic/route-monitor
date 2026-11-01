@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Let the website fill the browser width and adapt its opening layout to the available height, including wide monitors and phone orientations.
 - Download the current macOS release from the website and inspect a recorded direct-route error in the homepage case study.
 
 ## [0.1.1] - 2026-10-31
