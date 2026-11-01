@@ -1,0 +1,99 @@
+
+/* Homepage viewport frame. Inner copy keeps its reading measure. */
+.viewport-home {
+  --screen: 100vh;
+  --page-gutter: clamp(16px, 3vw, 80px);
+  --inset-start: max(var(--page-gutter), env(safe-area-inset-left, 0px));
+  --inset-end: max(var(--page-gutter), env(safe-area-inset-right, 0px));
+  --header-block: 96px;
+  --stage-block: calc(var(--screen) - var(--header-block));
+  --stage-pad: clamp(16px, 2.5vmin, 56px);
+  --stage-gap: clamp(16px, 3vmin, 72px);
+}
+@supports (height: 100dvh) {
+  .viewport-home { --screen: 100dvh; }
+}
+.viewport-home .container, .viewport-home .wrap, .viewport-home .studio-signoff {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: var(--inset-start) var(--inset-end);
+}
+.viewport-home > header { padding-top: env(safe-area-inset-top, 0px); }
+.viewport-home main.wrap { padding-inline: 0; }
+.viewport-home main.wrap > :is(.hero, .facts, .section, .install, .faq) {
+  padding-inline: var(--inset-start) var(--inset-end);
+}
+.viewport-home .hero {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: var(--stage-gap);
+  align-items: center;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  height: var(--stage-block);
+  min-height: min-content;
+  padding-block: var(--stage-pad);
+  padding-inline: var(--inset-start) var(--inset-end);
+}
+.viewport-home .hero > * { min-width: 0; }
+.viewport-home .hero h1 {
+  font-size: clamp(30px, min(4.2vw, 9.2vh), 96px);
+  line-height: 1.15;
+  letter-spacing: -.035em;
+  margin: 0 0 clamp(12px, 2vh, 28px);
+}
+.viewport-home .hero :is(.intro, .hero-description, .lede, .hero-lead) {
+  max-width: 45ch;
+  font-size: clamp(15px, 1.2vw, 24px);
+  line-height: 1.6;
+}
+.viewport-home .hero .eyebrow { font-size: clamp(10px, .8vw, 16px); margin: 0 0 16px; }
+.viewport-home .hero :is(.button, .text-link) { font-size: clamp(14px, 1vw, 20px); }
+.viewport-home .hero :is(.hero-note, .download-note, .subtle) { font-size: clamp(12px, .8vw, 16px); }
+.viewport-home :is(.section-intro, .feature p, .step p, .faq-list p) { max-width: 70ch; }
+.viewport-home .hero > .hero-copy, .viewport-home .hero .showcase-stage {
+  width: 100%;
+  max-width: none;
+  padding-inline: 0;
+}
+@media (max-aspect-ratio: 3/4), (max-width: 700px) and (orientation: portrait) {
+  .viewport-home .hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(min-content, 1fr);
+    align-items: center;
+    gap: clamp(14px, 2vh, 32px);
+  }
+  .viewport-home .hero h1 { font-size: clamp(30px, min(7vw, 6.5vh), 80px); }
+}
+@media (max-height: 540px) {
+  .viewport-home { --header-block: 64px; --stage-pad: 10px; --stage-gap: 16px; }
+  .viewport-home > header > nav, .viewport-home .header-inner { min-height: 64px; padding-block: 4px; }
+  .viewport-home .studio-home { font-size: 22px; }
+  .viewport-home .hero h1 { font-size: clamp(24px, min(4vw, 8vh), 38px); margin-bottom: 8px; }
+  .viewport-home .hero :is(.intro, .hero-description, .lede, .hero-lead) { font-size: 14px; line-height: 1.5; margin-block: 8px; }
+  .viewport-home .hero .eyebrow { display: none; }
+  .viewport-home .hero :is(.button, .text-link) { font-size: 14px; }
+}
+
+.viewport-home .hero .case-study {
+  align-self: stretch; display: grid; min-height: min-content;
+  grid-template-rows: auto minmax(min(100px, 15vh), 1fr) auto;
+  gap: clamp(12px, 1.7vh, 28px);
+  padding: clamp(16px, 2.5vmin, 48px);
+}
+.viewport-home .case-study figcaption strong { font-size: clamp(18px, 1.7vw, 38px); line-height: 1.35; }
+.viewport-home .case-study figcaption p { font-size: clamp(14px, 1.1vw, 24px); line-height: 1.6; margin: 12px 0 0; max-width: 62ch; }
+.viewport-home .case-image { min-height: 0; }
+.viewport-home .case-image img { width: 100%; height: 100%; object-fit: contain; }
+.viewport-home .case-study .case-source { font-size: clamp(12px, .8vw, 18px); margin: 0; }
+@media (max-height: 540px) {
+  .viewport-home .hero .case-study { gap: 8px; padding: 12px; }
+  .viewport-home .case-study figcaption strong { font-size: 18px; }
+  .viewport-home .case-study figcaption p { font-size: 13px; line-height: 1.5; margin-top: 6px; }
+  .viewport-home .case-study .case-source { font-size: 12px; }
+}
+
+/* Media fits the allocated track without contributing its native pixel dimensions. */
+.viewport-home .case-image { contain: size; }
