@@ -1,0 +1,122 @@
+@import "./base.css";
+[data-product-edition="route"] .pi-surface {
+  --pi-paper: #eff4f3;
+  --pi-fg: #19323d;
+  --pi-muted: #465e66;
+  --pi-accent: #24586a;
+  --pi-line: #b9cbd0;
+  --pi-tint: #dfeaec;
+}
+.route-heading,
+.route-case-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+}
+.route-heading .pi-actions {
+  flex: none;
+  margin: 0 0 4px;
+}
+.route-hero {
+  padding-block: clamp(32px, 4.6vw, 75px);
+}
+.route-heading h1 {
+  font-size: clamp(39px, 5.2vw, 77px);
+}
+.route-case {
+  margin-top: 28px;
+  background: #18333f;
+  color: #f2f8f9;
+  border-radius: 13px;
+  padding: clamp(17px, 2.4vw, 34px);
+}
+.route-case-heading {
+  align-items: center;
+  border-bottom: 1px solid #47616b;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+.route-case-heading h2 {
+  font-size: clamp(21px, 2.5vw, 30px);
+  color: inherit;
+  line-height: 1.2;
+}
+.route-case-heading > span,
+.route-receipt small {
+  font:
+    550 13px/1.5 ui-monospace,
+    monospace;
+  color: #cadce1;
+}
+.route-case .pi-tab-list {
+  color: #17333a;
+}
+.route-case-grid {
+  display: grid;
+  grid-template-columns: 0.75fr 1.25fr;
+  gap: 16px;
+  align-items: center;
+  min-height: 180px;
+}
+.route-receipt {
+  display: grid;
+  gap: 7px;
+}
+.route-receipt strong {
+  font:
+    650 clamp(27px, 3.2vw, 48px)/1.1 ui-monospace,
+    system-ui;
+  color: #fff;
+}
+.route-receipt p {
+  color: #ccdee2;
+  max-width: 37ch;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.route-case .pi-figure > a {
+  background: #f8faf7;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  padding: 10px;
+}
+.route-case .pi-figure img {
+  max-height: 225px;
+}
+@media (max-width: 730px) {
+  .route-heading {
+    display: block;
+  }
+  .route-heading .pi-actions {
+    margin-top: 18px;
+  }
+  .route-case-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .route-case-grid {
+    grid-template-columns: 1fr;
+  }
+  .route-case .pi-figure img {
+    max-height: 160px;
+  }
+}
+
+.pi-install-box {
+  padding: 14px;
+  border: 1px solid var(--pi-line);
+  background: var(--pi-paper);
+  border-radius: 9px;
+}
+.pi-install-box .pi-command {
+  width: 100%;
+  align-items: flex-start;
+}
+.pi-install-box code {
+  white-space: pre-wrap;
+  line-height: 1.65;
+  padding-block: 5px;
+}

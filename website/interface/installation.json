@@ -1,0 +1,4 @@
+{
+  "prompt": "请按 https://raw.githubusercontent.com/timmyagentic/route-monitor/main/INSTALL.md 在这台 Mac 安装最新正式版 Route Monitor，完成基础观察和后台服务验收；新安装保持持续纠偏关闭，保留已有配置、服务身份和历史，路由器规则不变，必要密钥与系统权限由我完成。",
+  "commands": "1. 下载并解压最新正式版 macOS ZIP\n2. 打开「安装.command」，在本机填写连接配置\n3. 访问 http://localhost:9780/，登录后开始观察"
+}

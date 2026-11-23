@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Explore three stages of a routing case in the redesigned website and switch between Agent and manual setup.
+
 - Open the routing example and connection dashboard at their original resolution without leaving the website.
 
 - Let the website fill the browser width and adapt its opening layout to the available height, including wide monitors and phone orientations.
