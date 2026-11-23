@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Open the routing example and connection dashboard at their original resolution without leaving the website.
+
 - Let the website fill the browser width and adapt its opening layout to the available height, including wide monitors and phone orientations.
 - Download the current macOS release from the website and inspect a recorded direct-route error in the homepage case study.
 
