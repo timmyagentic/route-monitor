@@ -2,11 +2,7 @@
 
 ## [Unreleased]
 
-- Compare direct, proxy, and follow-up results side by side in the website case record.
-
-- Explore three stages of a routing case in the redesigned website and switch between Agent and manual setup.
-
-- Open the routing example and connection dashboard at their original resolution without leaving the website.
+- Restore the original case presentation, screenshots, and installation controls on the website.
 
 - Let the website fill the browser width and adapt its opening layout to the available height, including wide monitors and phone orientations.
 - Download the current macOS release from the website and inspect a recorded direct-route error in the homepage case study.
