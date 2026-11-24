@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Compare direct, proxy, and follow-up results side by side in the website case record.
+
 - Explore three stages of a routing case in the redesigned website and switch between Agent and manual setup.
 
 - Open the routing example and connection dashboard at their original resolution without leaving the website.

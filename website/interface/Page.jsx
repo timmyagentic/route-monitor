@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import {
-  Route,
   GitCompareArrows,
   FileCheck2,
   Radio,
   ArrowDownToLine,
 } from "lucide-react";
-import { Action, Choices, Figure, HeroCopy, Mark } from "./ui.jsx";
+import { Action, Choices, Figure } from "./ui.jsx";
 export const site = {
   name: "Route Monitor",
   lang: "zh",
@@ -57,36 +56,32 @@ const steps = [
 export function Hero() {
   const [step, setStep] = useState("direct");
   return (
-    <section className="pi-hero route-hero">
-      <div className="pi-container">
-        <div className="route-heading">
-          <HeroCopy
-            mark={<Mark Icon={Route}>Mihomo / ShellCrash</Mark>}
-            title={
-              <>
-                一条连接出错，
-                <br />
-                沿着出口查。
-              </>
-            }
-            description="从连接错误开始，比较同一目标在不同出口的结果，再核对调整后的复验回执。"
-          />
-          <div className="pi-actions">
-            <Action href="/download" icon={ArrowDownToLine}>
-              下载 macOS 应用
-            </Action>
-            <Action href="#start" tone="ghost">
-              安装说明
-            </Action>
+    <section className="pi-hero route-hero" aria-labelledby="hero-title">
+      <div className="pi-container route-sheet">
+        <header className="route-heading">
+          <div>
+            <h1 id="hero-title">Route Monitor</h1>
+            <p>在 Mac 上复查连接使用的出口，保留每次探测和调整的结果。</p>
           </div>
-        </div>
-        <div className="route-case">
-          <div className="route-case-heading">
-            <h2>一次复测的完整记录</h2>
-            <span>隔离样例 · api.example.com</span>
+          <Action href="/download" icon={ArrowDownToLine}>
+            下载 macOS 版
+          </Action>
+        </header>
+        <article className="route-log">
+          <div className="route-log-title">
+            <h2>出口复验记录</h2>
+            <small>历史样例</small>
           </div>
+          <ol className="route-path" aria-label="本次记录摘要">
+            {steps.map((s) => (
+              <li key={s.id}>
+                <span>{s.path}</span>
+                <strong>{s.status}</strong>
+              </li>
+            ))}
+          </ol>
           <Choices
-            label="复测阶段"
+            label="选择复验阶段"
             tabs={steps}
             value={step}
             onChange={setStep}
@@ -94,9 +89,9 @@ export function Hero() {
             {(item) => (
               <div className="route-case-grid">
                 <div className="route-receipt">
-                  <small>{item.path}</small>
-                  <strong>{item.status}</strong>
+                  <h3>{item.label}</h3>
                   <p>{item.body}</p>
+                  <a href={item.original || item.src}>查看原始记录</a>
                 </div>
                 <Figure
                   src={item.src}
@@ -110,7 +105,7 @@ export function Hero() {
               </div>
             )}
           </Choices>
-        </div>
+        </article>
       </div>
     </section>
   );
