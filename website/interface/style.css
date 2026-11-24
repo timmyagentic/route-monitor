@@ -1,107 +1,126 @@
 @import "./base.css";
 [data-product-edition="route"] .pi-surface {
-  --pi-paper: #eff4f3;
-  --pi-fg: #19323d;
-  --pi-muted: #465e66;
-  --pi-accent: #24586a;
-  --pi-line: #b9cbd0;
-  --pi-tint: #dfeaec;
-}
-.route-heading,
-.route-case-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 20px;
-}
-.route-heading .pi-actions {
-  flex: none;
-  margin: 0 0 4px;
+  --pi-fg: #1f2b39;
+  --pi-accent: #24508b;
+  --pi-tint: #e9eff8;
+  --pi-line: #c4cfdd;
 }
 .route-hero {
-  padding-block: clamp(32px, 4.6vw, 75px);
+  background: #f8fafc;
+  padding-block: clamp(25px, 3.5vw, 52px);
+}
+.route-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0 0 25px;
 }
 .route-heading h1 {
-  font-size: clamp(39px, 5.2vw, 77px);
+  font-size: clamp(33px, 4vw, 54px);
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  margin: 0;
 }
-.route-case {
-  margin-top: 28px;
-  background: #18333f;
-  color: #f2f8f9;
-  border-radius: 13px;
-  padding: clamp(17px, 2.4vw, 34px);
+.route-heading p {
+  color: #46576a;
+  font-size: 16px;
+  margin: 8px 0 0;
 }
-.route-case-heading {
-  align-items: center;
-  border-bottom: 1px solid #47616b;
-  padding-bottom: 14px;
-  margin-bottom: 14px;
+.route-log {
+  background: #fff;
+  border-block: 2px solid #29394b;
+  padding: clamp(14px, 2vw, 26px) 0;
 }
-.route-case-heading h2 {
-  font-size: clamp(21px, 2.5vw, 30px);
-  color: inherit;
-  line-height: 1.2;
+.route-log-title {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
 }
-.route-case-heading > span,
-.route-receipt small {
+.route-log-title h2 {
+  font-size: 22px;
+  margin: 0;
+}
+.route-log-title small {
+  color: #56687a;
+  font-size: 13px;
+}
+.route-path {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  list-style: none;
+  gap: 0;
+  margin: 15px 0;
+  padding: 0;
+  background: #eaf0f6;
+}
+.route-path li {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-inline-start: 1px solid #c9d4df;
+}
+.route-path li:first-child {
+  border: 0;
+}
+.route-path li span {
   font:
-    550 13px/1.5 ui-monospace,
+    520 13px/1.3 ui-monospace,
     monospace;
-  color: #cadce1;
+  color: #485e73;
 }
-.route-case .pi-tab-list {
-  color: #17333a;
+.route-path li strong {
+  font-size: clamp(16px, 1.8vw, 25px);
+  color: #2c3c4d;
+}
+.route-path li:nth-child(2) strong {
+  color: #14604b;
 }
 .route-case-grid {
   display: grid;
-  grid-template-columns: 0.75fr 1.25fr;
-  gap: 16px;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   align-items: center;
-  min-height: 180px;
+  gap: clamp(17px, 3.2vw, 48px);
+  padding: 20px 10px 0;
 }
-.route-receipt {
-  display: grid;
-  gap: 7px;
-}
-.route-receipt strong {
-  font:
-    650 clamp(27px, 3.2vw, 48px)/1.1 ui-monospace,
-    system-ui;
-  color: #fff;
+.route-receipt h3 {
+  font-size: 20px;
+  margin: 0 0 8px;
 }
 .route-receipt p {
-  color: #ccdee2;
-  max-width: 37ch;
-  font-size: 15px;
+  color: #495a6b;
+  font-size: 16px;
   line-height: 1.6;
+  margin: 0 0 10px;
 }
-.route-case .pi-figure > a {
-  background: #f8faf7;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  padding: 10px;
+.route-receipt a {
+  text-decoration: underline;
+  color: #174c86;
 }
-.route-case .pi-figure img {
-  max-height: 225px;
+.route-case-grid .pi-figure img {
+  max-height: 200px;
+  object-fit: contain;
+  object-position: left center;
 }
-@media (max-width: 730px) {
+@media (max-width: 630px) {
   .route-heading {
     display: block;
   }
-  .route-heading .pi-actions {
-    margin-top: 18px;
+  .route-heading .pi-action {
+    margin-top: 13px;
   }
-  .route-case-heading {
-    align-items: start;
-    flex-direction: column;
-    gap: 5px;
+  .route-path li {
+    padding: 10px 7px;
   }
   .route-case-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 0;
+    gap: 12px;
   }
-  .route-case .pi-figure img {
-    max-height: 160px;
+  .route-log .pi-tab {
+    padding-inline: 5px;
+    gap: 3px;
+    font-size: 13px;
   }
 }
 
