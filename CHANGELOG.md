@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-- Compare direct and proxy retest evidence in the website introduction.
-
 - Restore the original case presentation, screenshots, and installation controls on the website.
 
 - Let the website fill the browser width and adapt its opening layout to the available height, including wide monitors and phone orientations.
