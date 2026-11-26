@@ -189,4 +189,4 @@ POST /api/handling 的handled=true请求新增必填reason字符串，例如 {"d
 
 本项目源码采用 [MIT License](LICENSE)。
 
-第三方 Go 依赖与 Go 运行时遵循各自许可证，构建脚本会汇总到分发包的 `THIRD_PARTY_NOTICES.txt`；网站字体遵循各自的 [SIL Open Font License](website/public/brand/fonts/)。
+第三方 Go 依赖与 Go 运行时遵循各自许可证，构建脚本会汇总到分发包的 `THIRD_PARTY_NOTICES.txt`；网站字体遵循各自的 [SIL Open Font License](https://route-monitor.timmyagentic.si/brand/fonts/INSTRUMENT-SANS-LICENSE.txt)。
